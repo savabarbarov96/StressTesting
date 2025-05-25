@@ -175,7 +175,7 @@ const RunDashboard: React.FC = () => {
   };
 
   useEffect(() => {
-    if (id) {
+    if (id && socketConnected) {
       loadRun();
       
       // Join the run room for real-time updates
@@ -231,7 +231,7 @@ const RunDashboard: React.FC = () => {
         socketService.offRunStopped(handleRunStopped);
       };
     }
-  }, [id]);
+  }, [id, socketConnected]);
 
   if (loading) {
     return (
@@ -344,24 +344,29 @@ const RunDashboard: React.FC = () => {
       )}
 
       {/* Run Error Display */}
-      {run.error && (
-        <Alert severity="error" sx={{ mb: 3 }}>
-          <Typography variant="subtitle2" gutterBottom>
-            Run Failed: {run.error.message}
-          </Typography>
-          {run.error.details && (
-            <Typography variant="body2" sx={{ mt: 1 }}>
-              Details: {String(typeof run.error.details === 'string' 
-                ? run.error.details 
-                : JSON.stringify(run.error.details)
-              )}
+      {run.error && (() => {
+        const detailsString = run.error.details
+          ? (typeof run.error.details === 'string'
+            ? run.error.details
+            : JSON.stringify(run.error.details, null, 2))
+          : '';
+
+        return (
+          <Alert severity="error" sx={{ mb: 3 }}>
+            <Typography variant="subtitle2" gutterBottom>
+              Run Failed: {run.error.message}
             </Typography>
-          )}
-          <Typography variant="caption" display="block" sx={{ mt: 1 }}>
-            Failed at: {new Date(run.error.timestamp).toLocaleString()}
-          </Typography>
-        </Alert>
-      )}
+            {detailsString && (
+              <Typography variant="body2" sx={{ mt: 1 }}>
+                Details: {detailsString}
+              </Typography>
+            )}
+            <Typography variant="caption" display="block" sx={{ mt: 1 }}>
+              Failed at: {new Date(run.error.timestamp).toLocaleString()}
+            </Typography>
+          </Alert>
+        );
+      })()}
 
       {/* Run Information */}
       <Paper sx={{ p: 3, mb: 3 }}>
