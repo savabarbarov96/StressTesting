@@ -6,15 +6,30 @@ import {
   Button,
   Alert,
   CircularProgress,
-  Card,
-  CardContent,
   Chip,
+  IconButton,
+  Tooltip,
+  Menu,
+  MenuItem,
+  ListItemIcon,
+  ListItemText,
 } from '@mui/material';
 
-import { ArrowBack, Stop, Error as ErrorIcon } from '@mui/icons-material';
+import { 
+  ArrowBack, 
+  Stop, 
+  Error as ErrorIcon, 
+  GetApp,
+  PictureAsPdf,
+  Language,
+  TextSnippet,
+} from '@mui/icons-material';
 import { useNavigate, useParams } from 'react-router-dom';
 import { runsApi, getErrorMessage, getErrorDetails, type Run, type ProgressMetrics } from '../services/api';
 import socketService from '../services/socket';
+import RealTimeCharts from '../components/RealTimeCharts';
+import EnhancedConsole from '../components/EnhancedConsole';
+import { ExportUtils } from '../components/ExportUtils';
 
 // Define error data interface
 interface RunErrorData {
@@ -33,6 +48,26 @@ const RunDashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
+  const [exportMenuAnchor, setExportMenuAnchor] = useState<null | HTMLElement>(null);
+  const [isExporting, setIsExporting] = useState(false);
+  const [socketConnected, setSocketConnected] = useState(false);
+
+  // Initialize socket connection
+  useEffect(() => {
+    socketService.connect();
+    
+    // Listen for connection status changes
+    const handleConnectionChange = (connected: boolean) => {
+      setSocketConnected(connected);
+    };
+    
+    socketService.onConnectionChange(handleConnectionChange);
+    
+    return () => {
+      socketService.offConnectionChange(handleConnectionChange);
+      socketService.disconnect();
+    };
+  }, []);
 
   const loadRun = async () => {
     if (!id) return;
@@ -97,6 +132,45 @@ const RunDashboard: React.FC = () => {
         return <ErrorIcon fontSize="small" />;
       default:
         return undefined;
+    }
+  };
+
+  const handleExportMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
+    setExportMenuAnchor(event.currentTarget);
+  };
+
+  const handleExportMenuClose = () => {
+    setExportMenuAnchor(null);
+  };
+
+  const handleExport = async (format: 'pdf' | 'html' | 'logs') => {
+    if (!run) return;
+
+    setIsExporting(true);
+    handleExportMenuClose();
+
+    try {
+      const exportData = {
+        run,
+        logs,
+      };
+
+      switch (format) {
+        case 'pdf':
+          await ExportUtils.exportToPDF(exportData);
+          break;
+        case 'html':
+          await ExportUtils.exportToHTML(exportData);
+          break;
+        case 'logs':
+          await ExportUtils.exportLogs(logs);
+          break;
+      }
+    } catch (error) {
+      console.error('Export failed:', error);
+      setError('Failed to export data. Please try again.');
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -199,18 +273,62 @@ const RunDashboard: React.FC = () => {
           <Typography variant="h4" component="h1">
             Load Test Run
           </Typography>
+          <Chip
+            label={run.status.toUpperCase()}
+            color={getStatusColor(run.status)}
+            icon={getStatusIcon(run.status)}
+            variant="outlined"
+            sx={{ ml: 2 }}
+          />
         </Box>
         
-        {run.status === 'running' && (
-          <Button
-            variant="contained"
-            color="error"
-            startIcon={<Stop />}
-            onClick={handleStopRun}
+        <Box display="flex" alignItems="center" gap={1}>
+          {run.status === 'running' && (
+            <Button
+              variant="contained"
+              color="error"
+              startIcon={<Stop />}
+              onClick={handleStopRun}
+            >
+              Stop Run
+            </Button>
+          )}
+          
+          <Tooltip title="Export Results">
+            <IconButton
+              onClick={handleExportMenuOpen}
+              disabled={isExporting}
+              color="primary"
+            >
+              {isExporting ? <CircularProgress size={24} /> : <GetApp />}
+            </IconButton>
+          </Tooltip>
+          
+          <Menu
+            anchorEl={exportMenuAnchor}
+            open={Boolean(exportMenuAnchor)}
+            onClose={handleExportMenuClose}
           >
-            Stop Run
-          </Button>
-        )}
+            <MenuItem onClick={() => handleExport('pdf')}>
+              <ListItemIcon>
+                <PictureAsPdf fontSize="small" />
+              </ListItemIcon>
+              <ListItemText>Export as PDF</ListItemText>
+            </MenuItem>
+            <MenuItem onClick={() => handleExport('html')}>
+              <ListItemIcon>
+                <Language fontSize="small" />
+              </ListItemIcon>
+              <ListItemText>Export as HTML</ListItemText>
+            </MenuItem>
+            <MenuItem onClick={() => handleExport('logs')}>
+              <ListItemIcon>
+                <TextSnippet fontSize="small" />
+              </ListItemIcon>
+              <ListItemText>Export Logs</ListItemText>
+            </MenuItem>
+          </Menu>
+        </Box>
       </Box>
 
       {error && (
@@ -233,7 +351,10 @@ const RunDashboard: React.FC = () => {
           </Typography>
           {run.error.details && (
             <Typography variant="body2" sx={{ mt: 1 }}>
-              Details: {`${typeof run.error.details === 'string' ? run.error.details : JSON.stringify(run.error.details || {})}`}
+              Details: {String(typeof run.error.details === 'string' 
+                ? run.error.details 
+                : JSON.stringify(run.error.details)
+              )}
             </Typography>
           )}
           <Typography variant="caption" display="block" sx={{ mt: 1 }}>
@@ -242,171 +363,116 @@ const RunDashboard: React.FC = () => {
         </Alert>
       )}
 
-      <Box display="flex" gap={3} sx={{ flexWrap: 'wrap' }}>
-        {/* Status and Metrics */}
-        <Box sx={{ flex: '2 1 600px', minWidth: 600 }}>
-          <Paper sx={{ p: 3, mb: 3 }}>
-            <Box display="flex" alignItems="center" mb={2}>
-              <Typography variant="h6" sx={{ mr: 2 }}>
-                Status:
+      {/* Run Information */}
+      <Paper sx={{ p: 3, mb: 3 }}>
+        <Typography variant="h6" gutterBottom>
+          Run Information
+        </Typography>
+        <Box display="flex" gap={4} sx={{ flexWrap: 'wrap' }}>
+          <Box>
+            <Typography variant="body2" color="text.secondary">
+              Run ID
+            </Typography>
+            <Typography variant="body1" fontFamily="monospace">
+              {run._id}
+            </Typography>
+          </Box>
+          <Box>
+            <Typography variant="body2" color="text.secondary">
+              Started
+            </Typography>
+            <Typography variant="body1">
+              {new Date(run.startedAt).toLocaleString()}
+            </Typography>
+          </Box>
+          {run.completedAt && (
+            <Box>
+              <Typography variant="body2" color="text.secondary">
+                Completed
               </Typography>
-              <Chip
-                label={run.status.toUpperCase()}
-                color={getStatusColor(run.status)}
-                icon={getStatusIcon(run.status)}
-                variant="outlined"
-              />
+              <Typography variant="body1">
+                {new Date(run.completedAt).toLocaleString()}
+              </Typography>
             </Box>
-            
-            {/* Real-time Metrics Cards */}
-            <Box display="flex" gap={2} sx={{ mb: 3, flexWrap: 'wrap' }}>
-              <Box sx={{ flex: '1 1 200px', minWidth: 200 }}>
-                <Card>
-                  <CardContent>
-                    <Typography color="textSecondary" gutterBottom>
-                      Current RPS
-                    </Typography>
-                    <Typography variant="h5" color="primary">
-                      {run.progress.currentRps.toFixed(1)}
-                    </Typography>
-                    <Typography variant="caption" color="textSecondary">
-                      requests/second
-                    </Typography>
-                  </CardContent>
-                </Card>
-              </Box>
-              <Box sx={{ flex: '1 1 200px', minWidth: 200 }}>
-                <Card>
-                  <CardContent>
-                    <Typography color="textSecondary" gutterBottom>
-                      Total Requests
-                    </Typography>
-                    <Typography variant="h5" color="info.main">
-                      {run.progress.totalRequests.toLocaleString()}
-                    </Typography>
-                    <Typography variant="caption" color="textSecondary">
-                      {run.progress.successfulRequests.toLocaleString()} successful, {run.progress.failedRequests.toLocaleString()} failed
-                    </Typography>
-                  </CardContent>
-                </Card>
-              </Box>
-              <Box sx={{ flex: '1 1 200px', minWidth: 200 }}>
-                <Card>
-                  <CardContent>
-                    <Typography color="textSecondary" gutterBottom>
-                      Success Rate
-                    </Typography>
-                    <Typography variant="h5" color={
-                      run.progress.totalRequests > 0 
-                        ? ((run.progress.successfulRequests / run.progress.totalRequests) * 100) >= 95 
-                          ? 'success.main' 
-                          : ((run.progress.successfulRequests / run.progress.totalRequests) * 100) >= 90 
-                            ? 'warning.main' 
-                            : 'error.main'
-                        : 'text.primary'
-                    }>
-                      {run.progress.totalRequests > 0 
-                        ? ((run.progress.successfulRequests / run.progress.totalRequests) * 100).toFixed(1)
-                        : 0}%
-                    </Typography>
-                    <Typography variant="caption" color="textSecondary">
-                      error rate: {run.progress.totalRequests > 0 
-                        ? ((run.progress.failedRequests / run.progress.totalRequests) * 100).toFixed(1)
-                        : 0}%
-                    </Typography>
-                  </CardContent>
-                </Card>
-              </Box>
-              <Box sx={{ flex: '1 1 200px', minWidth: 200 }}>
-                <Card>
-                  <CardContent>
-                    <Typography color="textSecondary" gutterBottom>
-                      Avg Latency
-                    </Typography>
-                    <Typography variant="h5" color="warning.main">
-                      {run.progress.averageLatency.toFixed(0)}ms
-                    </Typography>
-                    <Typography variant="caption" color="textSecondary">
-                      response time
-                    </Typography>
-                  </CardContent>
-                </Card>
-              </Box>
-            </Box>
-          </Paper>
+          )}
+          <Box>
+            <Typography variant="body2" color="text.secondary">
+              Duration
+            </Typography>
+            <Typography variant="body1">
+              {run.progress.elapsedTime}s
+            </Typography>
+          </Box>
+          <Box>
+            <Typography variant="body2" color="text.secondary">
+              Connection Status
+            </Typography>
+            <Chip
+              label={socketConnected ? 'Connected' : 'Disconnected'}
+              color={socketConnected ? 'success' : 'error'}
+              size="small"
+              variant="outlined"
+            />
+          </Box>
         </Box>
 
-        {/* Run Info */}
-        <Box sx={{ flex: '1 1 400px', minWidth: 400 }}>
-          <Paper sx={{ p: 3, mb: 3 }}>
+        {run.summary && (
+          <Box mt={3}>
             <Typography variant="h6" gutterBottom>
-              Run Information
+              Final Results
             </Typography>
-            <Typography variant="body2" gutterBottom>
-              <strong>Run ID:</strong> {run._id}
-            </Typography>
-            <Typography variant="body2" gutterBottom>
-              <strong>Started:</strong> {new Date(run.startedAt).toLocaleString()}
-            </Typography>
-            {run.completedAt && (
-              <Typography variant="body2" gutterBottom>
-                <strong>Completed:</strong> {new Date(run.completedAt).toLocaleString()}
-              </Typography>
-            )}
-            <Typography variant="body2" gutterBottom>
-              <strong>Elapsed:</strong> {run.progress.elapsedTime}s
-            </Typography>
-            {run.summary && (
-              <>
-                <Typography variant="body2" gutterBottom sx={{ mt: 2 }}>
-                  <strong>Final Results:</strong>
+            <Box display="flex" gap={4} sx={{ flexWrap: 'wrap' }}>
+              <Box>
+                <Typography variant="body2" color="text.secondary">
+                  Total Requests
                 </Typography>
-                <Typography variant="body2" gutterBottom>
-                  • Total Requests: {run.summary.totalRequests.toLocaleString()}
+                <Typography variant="h6" color="primary">
+                  {run.summary.totalRequests.toLocaleString()}
                 </Typography>
-                <Typography variant="body2" gutterBottom>
-                  • Average RPS: {run.summary.averageRps.toFixed(1)}
+              </Box>
+              <Box>
+                <Typography variant="body2" color="text.secondary">
+                  Average RPS
                 </Typography>
-                <Typography variant="body2" gutterBottom>
-                  • P99 Latency: {run.summary.p99Latency}ms
+                <Typography variant="h6" color="primary">
+                  {run.summary.averageRps.toFixed(1)}
                 </Typography>
-                <Typography variant="body2" gutterBottom>
-                  • Error Rate: {run.summary.errorRate.toFixed(2)}%
+              </Box>
+              <Box>
+                <Typography variant="body2" color="text.secondary">
+                  P99 Latency
                 </Typography>
-              </>
-            )}
-          </Paper>
-        </Box>
+                <Typography variant="h6" color="warning.main">
+                  {run.summary.p99Latency}ms
+                </Typography>
+              </Box>
+              <Box>
+                <Typography variant="body2" color="text.secondary">
+                  Error Rate
+                </Typography>
+                <Typography variant="h6" color="error.main">
+                  {run.summary.errorRate.toFixed(2)}%
+                </Typography>
+              </Box>
+            </Box>
+          </Box>
+        )}
+      </Paper>
+
+      {/* Real-Time Charts */}
+      <Box data-export-charts sx={{ mb: 3 }}>
+        <RealTimeCharts
+          currentMetrics={run.progress}
+          isRunning={run.status === 'running'}
+        />
       </Box>
 
-      {/* Console Logs */}
-      <Paper sx={{ p: 3, mt: 3 }}>
-        <Typography variant="h6" gutterBottom>
-          Console Logs
-        </Typography>
-        <Box
-          sx={{
-            height: 300,
-            overflow: 'auto',
-            backgroundColor: '#f5f5f5',
-            p: 2,
-            fontFamily: 'monospace',
-            fontSize: '0.875rem',
-            border: '1px solid #e0e0e0',
-            borderRadius: 1,
-          }}
-        >
-          {logs.length === 0 ? (
-            <Typography color="textSecondary">No logs yet...</Typography>
-          ) : (
-            logs.map((log, index) => (
-              <div key={index} style={{ marginBottom: '4px' }}>
-                {log}
-              </div>
-            ))
-          )}
-        </Box>
-      </Paper>
+      {/* Enhanced Console */}
+      <EnhancedConsole
+        logs={logs}
+        isRunning={run.status === 'running'}
+        onExport={() => handleExport('logs')}
+      />
     </Box>
   );
 };
