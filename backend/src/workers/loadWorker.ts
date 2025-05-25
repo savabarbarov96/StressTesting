@@ -59,10 +59,13 @@ const runId = workerData?.runId || 'unknown';
 const sendUpdate = (update: WorkerUpdate) => {
   if (parentPort) {
     try {
+      console.log(`📤 [Worker ${runId}] Sending update:`, update.type, update.data);
       parentPort.postMessage(update);
     } catch (error) {
       console.error(`❌ [${runId}] Failed to send update:`, error);
     }
+  } else {
+    console.error(`❌ [${runId}] No parent port available for sending update`);
   }
 };
 
@@ -344,17 +347,22 @@ const runLoadTest = async (spec: ISpec) => {
 
 // Enhanced message handling
 if (parentPort) {
+  console.log(`🔧 [Worker ${runId}] Worker initialized and listening for messages`);
+  
   parentPort.on('message', (message: WorkerMessage) => {
     try {
+      console.log(`📥 [Worker ${runId}] Received message:`, message.type);
       if (message.type === 'start') {
         if (!message.spec) {
           throw new Error('No spec provided');
         }
+        console.log(`🚀 [Worker ${runId}] Starting load test for spec: ${message.spec.name}`);
         runLoadTest(message.spec);
       } else {
         sendLog(`⚠️ Unknown message type: ${message.type}`);
       }
     } catch (error) {
+      console.error(`❌ [Worker ${runId}] Failed to process message:`, error);
       sendError('Failed to process message', error);
       process.exit(1);
     }

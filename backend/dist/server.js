@@ -5,10 +5,10 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 const fastify_1 = __importDefault(require("fastify"));
 const mongoose_1 = __importDefault(require("mongoose"));
-const socket_io_1 = require("socket.io");
 const config_1 = require("./config");
 const gridfs_1 = require("./utils/gridfs");
 const RunManager_1 = require("./services/RunManager");
+const websocket_server_1 = require("./websocket-server");
 const specs_1 = require("./routes/specs");
 const runs_1 = require("./routes/runs");
 const attachments_1 = require("./routes/attachments");
@@ -17,7 +17,7 @@ const fastify = (0, fastify_1.default)({
 });
 // Global run manager instance
 let runManager;
-let io;
+let websocketServer;
 // Register plugins
 async function registerPlugins() {
     // CORS support
@@ -65,6 +65,7 @@ async function connectDatabase() {
 async function registerRoutes() {
     // Initialize RunManager
     runManager = new RunManager_1.RunManager(config_1.config.maxWorkers);
+    console.log('✅ RunManager initialized');
     // Register API routes
     await fastify.register(specs_1.specsRoutes, { prefix: '/api/specs' });
     await fastify.register(async (fastify) => {
@@ -76,60 +77,49 @@ async function registerRoutes() {
         return {
             status: 'ok',
             timestamp: new Date().toISOString(),
-            activeRuns: runManager.listActive().length
+            activeRuns: runManager.listActive().length,
+            websocketPort: config_1.config.websocketPort
+        };
+    });
+    // Test WebSocket connectivity
+    fastify.post('/api/test-websocket', async () => {
+        if (!runManager) {
+            return { error: 'RunManager not initialized' };
+        }
+        // Emit a test event to verify WebSocket connectivity
+        const testRunId = 'test-' + Date.now();
+        runManager.emit('log', {
+            runId: testRunId,
+            data: {
+                message: 'WebSocket connectivity test',
+                timestamp: new Date()
+            }
+        });
+        return {
+            message: 'Test event emitted',
+            testRunId,
+            timestamp: new Date().toISOString()
         };
     });
 }
 // Setup WebSocket integration
-function setupWebSocket() {
-    // Create Socket.io server
-    io = new socket_io_1.Server(fastify.server, {
-        cors: {
-            origin: "*",
-            methods: ["GET", "POST"]
-        }
-    });
-    // Create runs namespace for real-time updates
-    const runsNamespace = io.of('/runs');
-    // Handle client connections
-    runsNamespace.on('connection', (socket) => {
-        console.log('Client connected to runs namespace:', socket.id);
-        // Join room for specific run
-        socket.on('join-run', (runId) => {
-            socket.join(runId);
-            console.log(`Client ${socket.id} joined run room: ${runId}`);
-        });
-        // Leave room for specific run
-        socket.on('leave-run', (runId) => {
-            socket.leave(runId);
-            console.log(`Client ${socket.id} left run room: ${runId}`);
-        });
-        socket.on('disconnect', () => {
-            console.log('Client disconnected:', socket.id);
-        });
-    });
-    // Set up RunManager event listeners to emit to WebSocket clients
-    runManager.on('progress', ({ runId, data }) => {
-        runsNamespace.to(runId).emit('progress', data);
-    });
-    runManager.on('log', ({ runId, data }) => {
-        runsNamespace.to(runId).emit('logLine', data);
-    });
-    runManager.on('runCompleted', ({ runId, summary }) => {
-        runsNamespace.to(runId).emit('runCompleted', summary);
-    });
-    runManager.on('runFailed', ({ runId, error }) => {
-        runsNamespace.to(runId).emit('runFailed', error);
-    });
-    runManager.on('runStopped', ({ runId }) => {
-        runsNamespace.to(runId).emit('runStopped', {});
-    });
+async function setupWebSocket() {
+    if (!runManager) {
+        throw new Error('RunManager must be initialized before WebSocket server');
+    }
+    // Create separate WebSocket server
+    websocketServer = new websocket_server_1.WebSocketServer(runManager);
+    await websocketServer.start();
+    console.log('✅ WebSocket server initialized and connected to RunManager');
 }
 // Graceful shutdown
 async function gracefulShutdown() {
     console.log('Shutting down gracefully...');
     if (runManager) {
         await runManager.shutdown();
+    }
+    if (websocketServer) {
+        await websocketServer.stop();
     }
     await mongoose_1.default.connection.close();
     await fastify.close();
@@ -141,7 +131,7 @@ async function start() {
         await registerPlugins();
         await connectDatabase();
         await registerRoutes();
-        setupWebSocket();
+        await setupWebSocket();
         // Handle graceful shutdown
         process.on('SIGTERM', gracefulShutdown);
         process.on('SIGINT', gracefulShutdown);

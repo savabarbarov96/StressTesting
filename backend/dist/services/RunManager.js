@@ -69,10 +69,12 @@ class RunManager extends events_1.EventEmitter {
             console.log(`🚀 Starting run ${run.id} for spec ${spec.name}`);
             // Get worker path with robust resolution
             const workerPath = this.getWorkerPath();
+            console.log(`🔧 Creating worker for run ${run.id} using path: ${workerPath}`);
             // Create and start worker with error handling
             const worker = new worker_threads_1.Worker(workerPath, {
                 workerData: { runId: run.id }
             });
+            console.log(`✅ Worker created successfully for run ${run.id}`);
             // Set up timeout for the worker
             const timeout = setTimeout(() => {
                 console.error(`⏰ Worker timeout for run ${run.id}`);
@@ -89,6 +91,7 @@ class RunManager extends events_1.EventEmitter {
             // Set up worker message handling with better error handling
             worker.on('message', (message) => {
                 try {
+                    console.log(`📥 [RunManager] Received message from worker for run ${run.id}:`, message.type);
                     this.handleWorkerMessage(run.id, message);
                 }
                 catch (error) {
@@ -105,10 +108,12 @@ class RunManager extends events_1.EventEmitter {
                 this.handleWorkerExit(run.id, code);
             });
             // Send the spec to the worker to start the load test
+            console.log(`📤 Sending start message to worker for run ${run.id}`);
             worker.postMessage({
                 type: 'start',
                 spec: spec.toObject()
             });
+            console.log(`📤 Start message sent to worker for run ${run.id}`);
             this.emit('runStarted', {
                 runId: run.id,
                 specId,
@@ -216,12 +221,15 @@ class RunManager extends events_1.EventEmitter {
         }
         switch (message.type) {
             case 'progress':
+                console.log(`📊 [RunManager] Received progress for run ${runId}:`, message.data);
                 await this.updateProgress(runId, message.data);
                 this.emit('progress', { runId, data: message.data });
+                console.log(`📊 [RunManager] Emitted progress event for run ${runId}`);
                 break;
             case 'log':
                 console.log(`📝 [${runId}] ${message.data.message}`);
                 this.emit('log', { runId, data: message.data });
+                console.log(`📝 [RunManager] Emitted log event for run ${runId}`);
                 break;
             case 'complete':
                 console.log(`✅ Run ${runId} completed successfully`);

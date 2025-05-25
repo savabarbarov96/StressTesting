@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Test</title>
+</head>
+<body>
+    <h1>WebSocket Connection Test</h1>
+    <div id="status">Connecting...</div>
+    <div id="messages"></div>
+
+    <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+    <script>
+        const statusDiv = document.getElementById('status');
+        const messagesDiv = document.getElementById('messages');
+
+        function log(message) {
+            console.log(message);
+            messagesDiv.innerHTML += '<p>' + new Date().toLocaleTimeString() + ': ' + message + '</p>';
+        }
+
+        // Test connection to WebSocket server
+        log('🔌 Attempting to connect to WebSocket server...');
+        
+        const socket = io('http://localhost:3002/runs', {
+            transports: ['websocket', 'polling'],
+            autoConnect: true,
+            reconnection: true,
+            reconnectionDelay: 1000,
+            reconnectionAttempts: 5,
+            timeout: 20000,
+        });
+
+        socket.on('connect', () => {
+            log('✅ Connected to WebSocket server!');
+            statusDiv.innerHTML = '<span style="color: green;">✅ Connected</span>';
+            
+            // Test joining a room
+            socket.emit('join-run', 'test-run-123');
+            log('🏠 Joined test room: test-run-123');
+        });
+
+        socket.on('disconnect', (reason) => {
+            log('❌ Disconnected: ' + reason);
+            statusDiv.innerHTML = '<span style="color: red;">❌ Disconnected</span>';
+        });
+
+        socket.on('connect_error', (error) => {
+            log('❌ Connection error: ' + error.message);
+            statusDiv.innerHTML = '<span style="color: red;">❌ Connection Error</span>';
+        });
+
+        socket.on('reconnect', (attemptNumber) => {
+            log('🔄 Reconnected after ' + attemptNumber + ' attempts');
+            statusDiv.innerHTML = '<span style="color: green;">✅ Reconnected</span>';
+        });
+
+        socket.on('reconnect_error', (error) => {
+            log('❌ Reconnection error: ' + error.message);
+        });
+
+        // Listen for test events
+        socket.on('progress', (data) => {
+            log('📊 Received progress: ' + JSON.stringify(data));
+        });
+
+        socket.on('logLine', (data) => {
+            log('📝 Received log: ' + JSON.stringify(data));
+        });
+
+        socket.on('runCompleted', (data) => {
+            log('✅ Run completed: ' + JSON.stringify(data));
+        });
+
+        socket.on('runFailed', (data) => {
+            log('❌ Run failed: ' + JSON.stringify(data));
+        });
+
+        socket.on('runStopped', (data) => {
+            log('🛑 Run stopped: ' + JSON.stringify(data));
+        });
+    </script>
+</body>
+</html> 

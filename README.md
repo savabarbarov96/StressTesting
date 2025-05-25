@@ -56,15 +56,21 @@ npm run dev
 4. **Access the Application**
 - Frontend: http://localhost:5173
 - Backend API: http://localhost:3001
+- WebSocket Server: http://localhost:3002
 
 ### Environment Variables
 
 The backend uses these default values (can be overridden with environment variables):
-- `PORT=3001`
+- `PORT=3001` - Main backend API server port
+- `WEBSOCKET_PORT=3002` - WebSocket server port (separate from API for load testing)
 - `MONGO_URI=mongodb://localhost:27017/loadforge`
 - `MAX_WORKERS=4`
 - `MAX_SOCKETS=1000`
 - `NODE_ENV=development`
+
+The frontend can be configured with these environment variables:
+- `VITE_BACKEND_URL=http://localhost:3001` - Backend API URL
+- `VITE_WEBSOCKET_URL=http://localhost:3002` - WebSocket server URL
 
 ## Usage
 
@@ -92,7 +98,7 @@ The backend uses these default values (can be overridden with environment variab
 - **Fastify** - High-performance web framework
 - **Worker Threads** - Isolated load test execution
 - **Autocannon** - HTTP benchmarking tool
-- **Socket.io** - Real-time communication
+- **Socket.io** - Real-time communication (runs on separate port to avoid conflicts during load testing)
 - **MongoDB + GridFS** - Data storage and file handling
 
 ### Frontend

@@ -15,59 +15,24 @@ export interface SocketEvents {
 }
 
 class SocketService {
-  private socket: Socket | null = null;
   private runsSocket: Socket | null = null;
   private isConnected: boolean = false;
   private isRunsConnected: boolean = false;
   private connectionListeners: Array<(connected: boolean) => void> = [];
 
   connect() {
-    // Get the backend URL from environment or default to localhost:3001
-    const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
+    // Get the WebSocket URL from environment or default to localhost:3002
+    const websocketUrl = import.meta.env.VITE_WEBSOCKET_URL || 'http://localhost:3002';
     
-    console.log(`🔌 Attempting to connect to backend: ${backendUrl}`);
-    
-    if (!this.socket) {
-      this.socket = io(backendUrl, {
-        transports: ['websocket', 'polling'],
-        autoConnect: true,
-        reconnection: true,
-        reconnectionDelay: 1000,
-        reconnectionAttempts: 5,
-        timeout: 20000,
-      });
-
-      this.socket.on('connect', () => {
-        console.log('✅ Connected to main socket');
-        this.isConnected = true;
-        this.notifyConnectionListeners();
-      });
-
-      this.socket.on('disconnect', (reason) => {
-        console.log('❌ Disconnected from main socket:', reason);
-        this.isConnected = false;
-        this.notifyConnectionListeners();
-      });
-
-      this.socket.on('connect_error', (error) => {
-        console.error('❌ Socket connection error:', error);
-        this.isConnected = false;
-        this.notifyConnectionListeners();
-      });
-
-      this.socket.on('reconnect', (attemptNumber) => {
-        console.log(`🔄 Reconnected to main socket after ${attemptNumber} attempts`);
-        this.isConnected = true;
-        this.notifyConnectionListeners();
-      });
-
-      this.socket.on('reconnect_error', (error) => {
-        console.error('❌ Reconnection error:', error);
-      });
-    }
+    console.log(`🔌 Attempting to connect to WebSocket: ${websocketUrl}`);
+    console.log(`🔌 Environment variables:`, {
+      VITE_WEBSOCKET_URL: import.meta.env.VITE_WEBSOCKET_URL,
+      NODE_ENV: import.meta.env.NODE_ENV,
+      MODE: import.meta.env.MODE
+    });
 
     if (!this.runsSocket) {
-      this.runsSocket = io(`${backendUrl}/runs`, {
+      this.runsSocket = io(`${websocketUrl}/runs`, {
         transports: ['websocket', 'polling'],
         autoConnect: true,
         reconnection: true,
@@ -77,45 +42,46 @@ class SocketService {
       });
 
       this.runsSocket.on('connect', () => {
-        console.log('✅ Connected to runs namespace');
+        console.log('✅ Connected to WebSocket server (runs namespace)');
+        this.isConnected = true;
         this.isRunsConnected = true;
         this.notifyConnectionListeners();
       });
 
       this.runsSocket.on('disconnect', (reason) => {
-        console.log('❌ Disconnected from runs namespace:', reason);
+        console.log('❌ Disconnected from WebSocket server:', reason);
+        this.isConnected = false;
         this.isRunsConnected = false;
         this.notifyConnectionListeners();
       });
 
       this.runsSocket.on('connect_error', (error) => {
-        console.error('❌ Runs socket connection error:', error);
+        console.error('❌ WebSocket connection error:', error);
+        console.error('❌ Error message:', error.message);
+        console.error('❌ Error stack:', error.stack);
+        this.isConnected = false;
         this.isRunsConnected = false;
         this.notifyConnectionListeners();
       });
 
       this.runsSocket.on('reconnect', (attemptNumber) => {
-        console.log(`🔄 Reconnected to runs namespace after ${attemptNumber} attempts`);
+        console.log(`🔄 Reconnected to WebSocket server after ${attemptNumber} attempts`);
+        this.isConnected = true;
         this.isRunsConnected = true;
         this.notifyConnectionListeners();
       });
 
       this.runsSocket.on('reconnect_error', (error) => {
-        console.error('❌ Runs namespace reconnection error:', error);
+        console.error('❌ WebSocket reconnection error:', error);
       });
     }
   }
 
   disconnect() {
-    if (this.socket) {
-      this.socket.disconnect();
-      this.socket = null;
-      this.isConnected = false;
-    }
-
     if (this.runsSocket) {
       this.runsSocket.disconnect();
       this.runsSocket = null;
+      this.isConnected = false;
       this.isRunsConnected = false;
     }
   }
@@ -211,14 +177,14 @@ class SocketService {
 
   // Connection status management
   private notifyConnectionListeners() {
-    const isConnected = this.isConnected && this.isRunsConnected;
+    const isConnected = this.isRunsConnected;
     this.connectionListeners.forEach(listener => listener(isConnected));
   }
 
   onConnectionChange(callback: (connected: boolean) => void) {
     this.connectionListeners.push(callback);
     // Immediately call with current status
-    callback(this.isConnected && this.isRunsConnected);
+    callback(this.isRunsConnected);
   }
 
   offConnectionChange(callback: (connected: boolean) => void) {
