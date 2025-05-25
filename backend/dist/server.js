@@ -30,14 +30,34 @@ async function registerPlugins() {
 // Connect to MongoDB
 async function connectDatabase() {
     try {
-        await mongoose_1.default.connect(config_1.config.mongoUri);
-        console.log('Connected to MongoDB');
+        console.log(`Attempting to connect to MongoDB at: ${config_1.config.mongoUri}`);
+        // MongoDB connection options for better reliability
+        const mongoOptions = {
+            serverSelectionTimeoutMS: 5000, // 5 seconds timeout
+            socketTimeoutMS: 45000, // 45 seconds socket timeout
+            bufferCommands: false, // Disable mongoose buffering
+        };
+        await mongoose_1.default.connect(config_1.config.mongoUri, mongoOptions);
+        console.log('✅ Connected to MongoDB successfully');
         // Initialize GridFS
         (0, gridfs_1.initGridFS)(mongoose_1.default.connection);
-        console.log('GridFS initialized');
+        console.log('✅ GridFS initialized');
+        // Handle connection events
+        mongoose_1.default.connection.on('error', (error) => {
+            console.error('❌ MongoDB connection error:', error);
+        });
+        mongoose_1.default.connection.on('disconnected', () => {
+            console.warn('⚠️ MongoDB disconnected');
+        });
+        mongoose_1.default.connection.on('reconnected', () => {
+            console.log('🔄 MongoDB reconnected');
+        });
     }
     catch (error) {
-        console.error('MongoDB connection error:', error);
+        console.error('❌ Failed to connect to MongoDB:', error);
+        console.error('💡 Make sure MongoDB is running and accessible at:', config_1.config.mongoUri);
+        console.error('💡 To start MongoDB locally, run: mongod');
+        console.error('💡 Or update MONGO_URI in your .env file for a different MongoDB instance');
         process.exit(1);
     }
 }

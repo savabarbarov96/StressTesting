@@ -1,4 +1,38 @@
-import axios from 'axios';
+import axios, { AxiosError } from 'axios';
+import type { AxiosResponse } from 'axios';
+
+// Enhanced error interface
+interface ApiError {
+  message: string;
+  details?: unknown;
+  timestamp?: string;
+  requestId?: string;
+  statusCode?: number;
+}
+
+// Extend axios types to include metadata
+declare module 'axios' {
+  interface InternalAxiosRequestConfig {
+    metadata?: {
+      requestId: string;
+      startTime: number;
+    };
+  }
+  
+  interface AxiosError {
+    apiError?: ApiError;
+  }
+}
+
+// Backend error response interface
+interface BackendErrorResponse {
+  error: string;
+  details?: unknown;
+  timestamp?: string;
+  requestId?: string;
+}
+
+
 
 // Create axios instance with base configuration
 const api = axios.create({
@@ -12,22 +46,102 @@ const api = axios.create({
 // Request interceptor for logging
 api.interceptors.request.use(
   (config) => {
-    console.log(`API Request: ${config.method?.toUpperCase()} ${config.url}`);
+    const requestId = Math.random().toString(36).substring(7);
+    config.metadata = { requestId, startTime: Date.now() };
+    console.log(`🚀 [${requestId}] API Request: ${config.method?.toUpperCase()} ${config.url}`);
     return config;
   },
   (error) => {
-    console.error('API Request Error:', error);
+    console.error('❌ API Request Error:', error);
     return Promise.reject(error);
   }
 );
 
-// Response interceptor for error handling
+// Response interceptor for error handling and logging
 api.interceptors.response.use(
-  (response) => {
+  (response: AxiosResponse) => {
+    const requestId = response.config.metadata?.requestId;
+    const duration = Date.now() - (response.config.metadata?.startTime || 0);
+    console.log(`✅ [${requestId}] API Response: ${response.status} (${duration}ms)`);
     return response;
   },
-  (error) => {
-    console.error('API Response Error:', error.response?.data || error.message);
+  (error: AxiosError) => {
+    const requestId = error.config?.metadata?.requestId;
+    const duration = Date.now() - (error.config?.metadata?.startTime || 0);
+    
+    // Enhanced error logging
+    console.error(`❌ [${requestId}] API Error (${duration}ms):`, {
+      status: error.response?.status,
+      statusText: error.response?.statusText,
+      url: error.config?.url,
+      method: error.config?.method,
+      data: error.response?.data,
+      message: error.message
+    });
+
+    // Create user-friendly error message
+    const apiError: ApiError = {
+      message: 'An unexpected error occurred',
+      statusCode: error.response?.status,
+      requestId
+    };
+
+    if (error.response?.data) {
+      const errorData = error.response.data as BackendErrorResponse;
+      
+      // Handle structured error responses from backend
+      if (errorData.error) {
+        apiError.message = errorData.error;
+        apiError.details = errorData.details;
+        apiError.timestamp = errorData.timestamp;
+        apiError.requestId = errorData.requestId || requestId;
+      } else if (typeof errorData === 'string') {
+        apiError.message = errorData;
+      }
+    } else if (error.code === 'ECONNABORTED') {
+      apiError.message = 'Request timed out. Please try again.';
+    } else if (error.code === 'ERR_NETWORK') {
+      apiError.message = 'Network error. Please check your connection and try again.';
+    } else if (error.message) {
+      apiError.message = error.message;
+    }
+
+    // Add status-specific messages
+    switch (error.response?.status) {
+      case 400:
+        if (!apiError.details) {
+          apiError.message = 'Invalid request. Please check your input and try again.';
+        }
+        break;
+      case 401:
+        apiError.message = 'Authentication required. Please log in and try again.';
+        break;
+      case 403:
+        apiError.message = 'Access denied. You do not have permission to perform this action.';
+        break;
+      case 404:
+        if (!apiError.message.includes('not found')) {
+          apiError.message = 'The requested resource was not found.';
+        }
+        break;
+      case 429:
+        if (!apiError.message.includes('concurrent')) {
+          apiError.message = 'Too many requests. Please wait a moment and try again.';
+        }
+        break;
+      case 500:
+        if (!apiError.details) {
+          apiError.message = 'Server error. Please try again later.';
+        }
+        break;
+      case 503:
+        apiError.message = 'Service temporarily unavailable. Please try again later.';
+        break;
+    }
+
+    // Attach the enhanced error to the original error object
+    error.apiError = apiError;
+    
     return Promise.reject(error);
   }
 );
@@ -88,11 +202,55 @@ export interface Run {
   completedAt?: string;
   summary?: RunSummary;
   progress: ProgressMetrics;
+  error?: {
+    message: string;
+    details?: unknown;
+    stack?: string;
+    timestamp: string;
+  };
   createdAt: string;
   updatedAt: string;
 }
 
-// API functions
+// Helper function to extract user-friendly error message
+export const getErrorMessage = (error: AxiosError | Error | unknown): string => {
+  if (error && typeof error === 'object' && 'apiError' in error) {
+    const axiosError = error as AxiosError;
+    return axiosError.apiError?.message || 'An unexpected error occurred';
+  }
+  
+  if (error && typeof error === 'object' && 'response' in error) {
+    const axiosError = error as AxiosError;
+    const responseData = axiosError.response?.data as BackendErrorResponse;
+    if (responseData?.error) {
+      return responseData.error;
+    }
+  }
+  
+  if (error && typeof error === 'object' && 'message' in error) {
+    return (error as Error).message;
+  }
+  
+  return 'An unexpected error occurred. Please try again.';
+};
+
+// Helper function to get error details for debugging
+export const getErrorDetails = (error: AxiosError | Error | unknown): unknown => {
+  if (error && typeof error === 'object' && 'apiError' in error) {
+    const axiosError = error as AxiosError;
+    return axiosError.apiError?.details || null;
+  }
+  
+  if (error && typeof error === 'object' && 'response' in error) {
+    const axiosError = error as AxiosError;
+    const responseData = axiosError.response?.data as BackendErrorResponse;
+    return responseData?.details || null;
+  }
+  
+  return null;
+};
+
+// API functions with enhanced error handling
 export const specsApi = {
   // Get all specs
   getAll: () => api.get<{ specs: Spec[] }>('/specs'),
@@ -121,7 +279,7 @@ export const runsApi = {
   
   // Start new run
   start: (specId: string) => 
-    api.post<{ runId: string; message: string }>(`/runs/${specId}`),
+    api.post<{ runId: string; message: string; timestamp: string; requestId: string }>(`/runs/${specId}`),
   
   // Stop run
   stop: (id: string) => api.delete(`/runs/${id}`),
@@ -146,6 +304,7 @@ export const attachmentsApi = {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
+        timeout: 60000, // Longer timeout for file uploads
       }
     );
   },
@@ -159,5 +318,19 @@ export const attachmentsApi = {
   // Delete file
   delete: (id: string) => api.delete(`/attachments/${id}`),
 };
+
+export interface HealthStatus {
+  status: string;
+  timestamp: string;
+  activeRuns: number;
+}
+
+export const healthApi = {
+  // Check backend health
+  check: () => api.get<HealthStatus>('/health'),
+};
+
+// Export the enhanced error type
+export type { ApiError };
 
 export default api; 

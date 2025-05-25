@@ -14,6 +14,7 @@ import {
   Chip,
   Alert,
   CircularProgress,
+  Snackbar,
 } from '@mui/material';
 import {
   Add,
@@ -23,7 +24,7 @@ import {
   Refresh,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
-import { specsApi, runsApi, type Spec } from '../services/api';
+import { specsApi, runsApi, getErrorMessage, getErrorDetails, type Spec } from '../services/api';
 
 const SpecsList: React.FC = () => {
   const navigate = useNavigate();
@@ -31,16 +32,24 @@ const SpecsList: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [runningSpecs, setRunningSpecs] = useState<Set<string>>(new Set());
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const loadSpecs = async () => {
     try {
       setLoading(true);
       setError(null);
+      console.log('🔄 Loading test specifications...');
+      
       const response = await specsApi.getAll();
       setSpecs(response.data.specs);
+      
+      console.log(`✅ Loaded ${response.data.specs.length} test specifications`);
     } catch (err) {
-      setError('Failed to load test specifications');
-      console.error('Error loading specs:', err);
+      const errorMessage = getErrorMessage(err);
+      const errorDetails = getErrorDetails(err);
+      
+      setError(errorMessage);
+      console.error('❌ Error loading specs:', { errorMessage, errorDetails, originalError: err });
     } finally {
       setLoading(false);
     }
@@ -52,11 +61,17 @@ const SpecsList: React.FC = () => {
     }
 
     try {
+      console.log(`🗑️ Deleting spec: ${id}`);
       await specsApi.delete(id);
       setSpecs(specs.filter(spec => spec._id !== id));
+      setSuccessMessage('Test specification deleted successfully');
+      console.log(`✅ Spec deleted: ${id}`);
     } catch (err) {
-      setError('Failed to delete test specification');
-      console.error('Error deleting spec:', err);
+      const errorMessage = getErrorMessage(err);
+      const errorDetails = getErrorDetails(err);
+      
+      setError(errorMessage);
+      console.error('❌ Error deleting spec:', { errorMessage, errorDetails, originalError: err });
     }
   };
 
@@ -64,14 +79,24 @@ const SpecsList: React.FC = () => {
     if (!specId) return;
 
     try {
+      console.log(`🚀 Starting load test for spec: ${specId}`);
       setRunningSpecs(prev => new Set(prev).add(specId));
+      setError(null);
+      
       const response = await runsApi.start(specId);
+      
+      console.log(`✅ Load test started: ${response.data.runId}`);
+      setSuccessMessage(`Load test started successfully! Run ID: ${response.data.runId}`);
       
       // Navigate to the run dashboard
       navigate(`/runs/${response.data.runId}`);
     } catch (err) {
-      setError('Failed to start load test');
-      console.error('Error starting run:', err);
+      const errorMessage = getErrorMessage(err);
+      const errorDetails = getErrorDetails(err);
+      
+      setError(errorMessage);
+      console.error('❌ Error starting run:', { errorMessage, errorDetails, originalError: err });
+      
       setRunningSpecs(prev => {
         const newSet = new Set(prev);
         newSet.delete(specId);
@@ -95,6 +120,10 @@ const SpecsList: React.FC = () => {
     return colors[method] || 'primary';
   };
 
+  const handleCloseSnackbar = () => {
+    setSuccessMessage(null);
+  };
+
   useEffect(() => {
     loadSpecs();
   }, []);
@@ -103,6 +132,9 @@ const SpecsList: React.FC = () => {
     return (
       <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
         <CircularProgress />
+        <Typography variant="body1" sx={{ ml: 2 }}>
+          Loading test specifications...
+        </Typography>
       </Box>
     );
   }
@@ -118,6 +150,7 @@ const SpecsList: React.FC = () => {
             variant="outlined"
             startIcon={<Refresh />}
             onClick={loadSpecs}
+            disabled={loading}
           >
             Refresh
           </Button>
@@ -132,8 +165,14 @@ const SpecsList: React.FC = () => {
       </Box>
 
       {error && (
-        <Alert severity="error" sx={{ mb: 3 }}>
-          {error}
+        <Alert 
+          severity="error" 
+          sx={{ mb: 3 }}
+          onClose={() => setError(null)}
+        >
+          <Typography variant="subtitle2" gutterBottom>
+            {error}
+          </Typography>
         </Alert>
       )}
 
@@ -235,6 +274,18 @@ const SpecsList: React.FC = () => {
           </Table>
         </TableContainer>
       )}
+
+      {/* Success Snackbar */}
+      <Snackbar
+        open={!!successMessage}
+        autoHideDuration={6000}
+        onClose={handleCloseSnackbar}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+      >
+        <Alert onClose={handleCloseSnackbar} severity="success" sx={{ width: '100%' }}>
+          {successMessage}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 };

@@ -15,12 +15,13 @@ async function specsRoutes(fastify) {
         }
     });
     // GET /specs/:id - Get a specific spec
-    fastify.get('/:id', {
-        schema: {
-            params: validation_1.SpecIdParamsSchema
-        }
-    }, async (request, reply) => {
+    fastify.get('/:id', async (request, reply) => {
         try {
+            // Validate params manually
+            const validation = validation_1.SpecIdParamsSchema.safeParse(request.params);
+            if (!validation.success) {
+                return reply.status(400).send({ error: 'Invalid parameters', details: validation.error.errors });
+            }
             const spec = await Spec_1.Spec.findById(request.params.id);
             if (!spec) {
                 return reply.status(404).send({ error: 'Spec not found' });
@@ -32,13 +33,14 @@ async function specsRoutes(fastify) {
         }
     });
     // POST /specs - Create a new spec
-    fastify.post('/', {
-        schema: {
-            body: validation_1.CreateSpecSchema
-        }
-    }, async (request, reply) => {
+    fastify.post('/', async (request, reply) => {
         try {
-            const spec = new Spec_1.Spec(request.body);
+            // Validate body manually
+            const validation = validation_1.CreateSpecSchema.safeParse(request.body);
+            if (!validation.success) {
+                return reply.status(400).send({ error: 'Invalid request body', details: validation.error.errors });
+            }
+            const spec = new Spec_1.Spec(validation.data);
             await spec.save();
             return { spec };
         }
@@ -50,14 +52,19 @@ async function specsRoutes(fastify) {
         }
     });
     // PUT /specs/:id - Update a spec
-    fastify.put('/:id', {
-        schema: {
-            params: validation_1.SpecIdParamsSchema,
-            body: validation_1.UpdateSpecSchema
-        }
-    }, async (request, reply) => {
+    fastify.put('/:id', async (request, reply) => {
         try {
-            const spec = await Spec_1.Spec.findByIdAndUpdate(request.params.id, { $set: request.body }, { new: true, runValidators: true });
+            // Validate params manually
+            const paramsValidation = validation_1.SpecIdParamsSchema.safeParse(request.params);
+            if (!paramsValidation.success) {
+                return reply.status(400).send({ error: 'Invalid parameters', details: paramsValidation.error.errors });
+            }
+            // Validate body manually
+            const bodyValidation = validation_1.UpdateSpecSchema.safeParse(request.body);
+            if (!bodyValidation.success) {
+                return reply.status(400).send({ error: 'Invalid request body', details: bodyValidation.error.errors });
+            }
+            const spec = await Spec_1.Spec.findByIdAndUpdate(request.params.id, { $set: bodyValidation.data }, { new: true, runValidators: true });
             if (!spec) {
                 return reply.status(404).send({ error: 'Spec not found' });
             }
@@ -71,12 +78,13 @@ async function specsRoutes(fastify) {
         }
     });
     // DELETE /specs/:id - Delete a spec
-    fastify.delete('/:id', {
-        schema: {
-            params: validation_1.SpecIdParamsSchema
-        }
-    }, async (request, reply) => {
+    fastify.delete('/:id', async (request, reply) => {
         try {
+            // Validate params manually
+            const validation = validation_1.SpecIdParamsSchema.safeParse(request.params);
+            if (!validation.success) {
+                return reply.status(400).send({ error: 'Invalid parameters', details: validation.error.errors });
+            }
             const spec = await Spec_1.Spec.findByIdAndDelete(request.params.id);
             if (!spec) {
                 return reply.status(404).send({ error: 'Spec not found' });

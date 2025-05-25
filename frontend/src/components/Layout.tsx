@@ -9,6 +9,7 @@ import {
 } from '@mui/material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { PlayArrow, List, Assessment } from '@mui/icons-material';
+import BackendStatus from './BackendStatus';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -31,7 +32,9 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             LoadForge
           </Typography>
           
-          <Box sx={{ display: 'flex', gap: 2 }}>
+          <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+            <BackendStatus compact />
+            
             <Button
               color="inherit"
               startIcon={<List />}

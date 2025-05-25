@@ -2,8 +2,12 @@ import { EventEmitter } from 'events';
 export declare class RunManager extends EventEmitter {
     private activeRuns;
     private maxConcurrentRuns;
+    private workerTimeout;
     constructor(maxConcurrentRuns?: number);
+    private getWorkerPath;
     startRun(specId: string): Promise<string>;
+    private validateSpec;
+    private handleWorkerTimeout;
     stopRun(runId: string): Promise<void>;
     listActive(): Array<{
         runId: string;
