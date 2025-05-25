@@ -19,31 +19,52 @@ class SocketService {
   private runsSocket: Socket | null = null;
 
   connect() {
+    // Get the backend URL from environment or default to localhost:3001
+    const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
+    
     if (!this.socket) {
-      this.socket = io('/', {
+      this.socket = io(backendUrl, {
         transports: ['websocket', 'polling'],
+        autoConnect: true,
+        reconnection: true,
+        reconnectionDelay: 1000,
+        reconnectionAttempts: 5,
+        timeout: 20000,
       });
 
       this.socket.on('connect', () => {
-        console.log('Connected to main socket');
+        console.log('✅ Connected to main socket');
       });
 
-      this.socket.on('disconnect', () => {
-        console.log('Disconnected from main socket');
+      this.socket.on('disconnect', (reason) => {
+        console.log('❌ Disconnected from main socket:', reason);
+      });
+
+      this.socket.on('connect_error', (error) => {
+        console.error('❌ Socket connection error:', error);
       });
     }
 
     if (!this.runsSocket) {
-      this.runsSocket = io('/runs', {
+      this.runsSocket = io(`${backendUrl}/runs`, {
         transports: ['websocket', 'polling'],
+        autoConnect: true,
+        reconnection: true,
+        reconnectionDelay: 1000,
+        reconnectionAttempts: 5,
+        timeout: 20000,
       });
 
       this.runsSocket.on('connect', () => {
-        console.log('Connected to runs namespace');
+        console.log('✅ Connected to runs namespace');
       });
 
-      this.runsSocket.on('disconnect', () => {
-        console.log('Disconnected from runs namespace');
+      this.runsSocket.on('disconnect', (reason) => {
+        console.log('❌ Disconnected from runs namespace:', reason);
+      });
+
+      this.runsSocket.on('connect_error', (error) => {
+        console.error('❌ Runs socket connection error:', error);
       });
     }
   }

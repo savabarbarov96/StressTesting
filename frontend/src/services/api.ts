@@ -284,6 +284,9 @@ export const runsApi = {
   // Stop run
   stop: (id: string) => api.delete(`/runs/${id}`),
   
+  // Delete run
+  delete: (id: string) => api.delete(`/runs/${id}/delete`),
+  
   // Get active runs
   getActive: () => api.get('/runs/active'),
   

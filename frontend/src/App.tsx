@@ -7,6 +7,7 @@ import Layout from './components/Layout';
 import SpecsList from './pages/SpecsList';
 import SpecEditor from './pages/SpecEditor';
 import RunDashboard from './pages/RunDashboard';
+import RunsList from './pages/RunsList';
 
 // Create Material-UI theme
 const theme = createTheme({
@@ -43,6 +44,7 @@ function App() {
               <Route path="/specs" element={<SpecsList />} />
               <Route path="/specs/:id/edit" element={<SpecEditor />} />
               <Route path="/specs/new" element={<SpecEditor />} />
+              <Route path="/runs" element={<RunsList />} />
               <Route path="/runs/:id" element={<RunDashboard />} />
             </Routes>
           </Box>

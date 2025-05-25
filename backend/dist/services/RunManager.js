@@ -157,8 +157,25 @@ class RunManager extends events_1.EventEmitter {
     }
     async stopRun(runId) {
         const activeRun = this.activeRuns.get(runId);
+        // Check if run exists in database first
+        const run = await Run_1.Run.findById(runId);
+        if (!run) {
+            throw new Error('Run not found');
+        }
+        // If run is already completed, stopped, or failed, don't throw error
+        if (run.status !== 'running') {
+            console.log(`⚠️ Run ${runId} is already ${run.status}, no action needed`);
+            return;
+        }
+        // If not in active runs but status is running, it might be a stale state
         if (!activeRun) {
-            throw new Error('Run not found or not active');
+            console.log(`⚠️ Run ${runId} not found in active runs but status is running, updating status to stopped`);
+            await Run_1.Run.findByIdAndUpdate(runId, {
+                status: 'stopped',
+                completedAt: new Date()
+            });
+            this.emit('runStopped', { runId });
+            return;
         }
         console.log(`🛑 Stopping run ${runId}`);
         try {

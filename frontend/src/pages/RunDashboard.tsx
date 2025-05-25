@@ -10,7 +10,7 @@ import {
   CardContent,
   Chip,
 } from '@mui/material';
-import { Grid } from '@mui/material';
+
 import { ArrowBack, Stop, Error as ErrorIcon } from '@mui/icons-material';
 import { useNavigate, useParams } from 'react-router-dom';
 import { runsApi, getErrorMessage, getErrorDetails, type Run, type ProgressMetrics } from '../services/api';
@@ -233,7 +233,7 @@ const RunDashboard: React.FC = () => {
           </Typography>
           {run.error.details && (
             <Typography variant="body2" sx={{ mt: 1 }}>
-              Details: {typeof run.error.details === 'string' ? run.error.details : JSON.stringify(run.error.details)}
+              Details: {`${typeof run.error.details === 'string' ? run.error.details : JSON.stringify(run.error.details || {})}`}
             </Typography>
           )}
           <Typography variant="caption" display="block" sx={{ mt: 1 }}>
@@ -242,9 +242,9 @@ const RunDashboard: React.FC = () => {
         </Alert>
       )}
 
-      <Grid container spacing={3}>
+      <Box display="flex" gap={3} sx={{ flexWrap: 'wrap' }}>
         {/* Status and Metrics */}
-        <Grid size={{ xs: 12, md: 8 }}>
+        <Box sx={{ flex: '2 1 600px', minWidth: 600 }}>
           <Paper sx={{ p: 3, mb: 3 }}>
             <Box display="flex" alignItems="center" mb={2}>
               <Typography variant="h6" sx={{ mr: 2 }}>
@@ -257,32 +257,40 @@ const RunDashboard: React.FC = () => {
                 variant="outlined"
               />
             </Box>
-            <Grid container spacing={2}>
-              <Grid size={{ xs: 6, sm: 3 }}>
+            
+            {/* Real-time Metrics Cards */}
+            <Box display="flex" gap={2} sx={{ mb: 3, flexWrap: 'wrap' }}>
+              <Box sx={{ flex: '1 1 200px', minWidth: 200 }}>
                 <Card>
                   <CardContent>
                     <Typography color="textSecondary" gutterBottom>
                       Current RPS
                     </Typography>
-                    <Typography variant="h5">
+                    <Typography variant="h5" color="primary">
                       {run.progress.currentRps.toFixed(1)}
+                    </Typography>
+                    <Typography variant="caption" color="textSecondary">
+                      requests/second
                     </Typography>
                   </CardContent>
                 </Card>
-              </Grid>
-              <Grid size={{ xs: 6, sm: 3 }}>
+              </Box>
+              <Box sx={{ flex: '1 1 200px', minWidth: 200 }}>
                 <Card>
                   <CardContent>
                     <Typography color="textSecondary" gutterBottom>
                       Total Requests
                     </Typography>
-                    <Typography variant="h5">
+                    <Typography variant="h5" color="info.main">
                       {run.progress.totalRequests.toLocaleString()}
+                    </Typography>
+                    <Typography variant="caption" color="textSecondary">
+                      {run.progress.successfulRequests.toLocaleString()} successful, {run.progress.failedRequests.toLocaleString()} failed
                     </Typography>
                   </CardContent>
                 </Card>
-              </Grid>
-              <Grid size={{ xs: 6, sm: 3 }}>
+              </Box>
+              <Box sx={{ flex: '1 1 200px', minWidth: 200 }}>
                 <Card>
                   <CardContent>
                     <Typography color="textSecondary" gutterBottom>
@@ -301,27 +309,35 @@ const RunDashboard: React.FC = () => {
                         ? ((run.progress.successfulRequests / run.progress.totalRequests) * 100).toFixed(1)
                         : 0}%
                     </Typography>
+                    <Typography variant="caption" color="textSecondary">
+                      error rate: {run.progress.totalRequests > 0 
+                        ? ((run.progress.failedRequests / run.progress.totalRequests) * 100).toFixed(1)
+                        : 0}%
+                    </Typography>
                   </CardContent>
                 </Card>
-              </Grid>
-              <Grid size={{ xs: 6, sm: 3 }}>
+              </Box>
+              <Box sx={{ flex: '1 1 200px', minWidth: 200 }}>
                 <Card>
                   <CardContent>
                     <Typography color="textSecondary" gutterBottom>
                       Avg Latency
                     </Typography>
-                    <Typography variant="h5">
+                    <Typography variant="h5" color="warning.main">
                       {run.progress.averageLatency.toFixed(0)}ms
+                    </Typography>
+                    <Typography variant="caption" color="textSecondary">
+                      response time
                     </Typography>
                   </CardContent>
                 </Card>
-              </Grid>
-            </Grid>
+              </Box>
+            </Box>
           </Paper>
-        </Grid>
+        </Box>
 
         {/* Run Info */}
-        <Grid size={{ xs: 12, md: 4 }}>
+        <Box sx={{ flex: '1 1 400px', minWidth: 400 }}>
           <Paper sx={{ p: 3, mb: 3 }}>
             <Typography variant="h6" gutterBottom>
               Run Information
@@ -360,39 +376,37 @@ const RunDashboard: React.FC = () => {
               </>
             )}
           </Paper>
-        </Grid>
+        </Box>
+      </Box>
 
-        {/* Console Logs */}
-        <Grid size={{ xs: 12 }}>
-          <Paper sx={{ p: 3 }}>
-            <Typography variant="h6" gutterBottom>
-              Console Logs
-            </Typography>
-            <Box
-              sx={{
-                height: 300,
-                overflow: 'auto',
-                backgroundColor: '#f5f5f5',
-                p: 2,
-                fontFamily: 'monospace',
-                fontSize: '0.875rem',
-                border: '1px solid #e0e0e0',
-                borderRadius: 1,
-              }}
-            >
-              {logs.length === 0 ? (
-                <Typography color="textSecondary">No logs yet...</Typography>
-              ) : (
-                logs.map((log, index) => (
-                  <div key={index} style={{ marginBottom: '4px' }}>
-                    {log}
-                  </div>
-                ))
-              )}
-            </Box>
-          </Paper>
-        </Grid>
-      </Grid>
+      {/* Console Logs */}
+      <Paper sx={{ p: 3, mt: 3 }}>
+        <Typography variant="h6" gutterBottom>
+          Console Logs
+        </Typography>
+        <Box
+          sx={{
+            height: 300,
+            overflow: 'auto',
+            backgroundColor: '#f5f5f5',
+            p: 2,
+            fontFamily: 'monospace',
+            fontSize: '0.875rem',
+            border: '1px solid #e0e0e0',
+            borderRadius: 1,
+          }}
+        >
+          {logs.length === 0 ? (
+            <Typography color="textSecondary">No logs yet...</Typography>
+          ) : (
+            logs.map((log, index) => (
+              <div key={index} style={{ marginBottom: '4px' }}>
+                {log}
+              </div>
+            ))
+          )}
+        </Box>
+      </Paper>
     </Box>
   );
 };

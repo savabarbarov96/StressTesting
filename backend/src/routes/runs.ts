@@ -137,9 +137,9 @@ export async function runsRoutes(fastify: FastifyInstance, runManager: RunManage
     } catch (error: any) {
       logError('DELETE /runs/:id', error, requestId);
       
-      if (error.message === 'Run not found or not active') {
+      if (error.message === 'Run not found') {
         const errorResponse = createErrorResponse(
-          'Run not found or not currently active',
+          'Run not found',
           { runId: request.params.id },
           404
         );
@@ -262,6 +262,71 @@ export async function runsRoutes(fastify: FastifyInstance, runManager: RunManage
       const errorResponse = createErrorResponse(
         'Failed to fetch active runs',
         { originalError: error.message },
+        500
+      );
+      reply.status(500).send(errorResponse);
+    }
+  });
+
+  // DELETE /runs/:id/delete - Delete a run record
+  fastify.delete('/:id/delete', async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+    const requestId = Math.random().toString(36).substring(7);
+    
+    try {
+      console.log(`🗑️ [${requestId}] Deleting run: ${request.params.id}`);
+      
+      // Validate params manually
+      const validation = RunIdParamsSchema.safeParse(request.params);
+      if (!validation.success) {
+        const errorResponse = createErrorResponse(
+          'Invalid run ID format',
+          validation.error.errors,
+          400
+        );
+        logError('DELETE /runs/:id/delete', 'Invalid parameters', requestId);
+        return reply.status(400).send(errorResponse);
+      }
+
+      const run = await Run.findById(request.params.id);
+      if (!run) {
+        const errorResponse = createErrorResponse(
+          'Run not found',
+          { runId: request.params.id },
+          404
+        );
+        console.log(`⚠️ [${requestId}] Run not found for deletion: ${request.params.id}`);
+        return reply.status(404).send(errorResponse);
+      }
+
+      // Don't allow deletion of running runs
+      if (run.status === 'running') {
+        const errorResponse = createErrorResponse(
+          'Cannot delete a running test. Please stop the test first.',
+          { runId: request.params.id, status: run.status },
+          400
+        );
+        console.log(`⚠️ [${requestId}] Attempted to delete running run: ${request.params.id}`);
+        return reply.status(400).send(errorResponse);
+      }
+
+      await Run.findByIdAndDelete(request.params.id);
+      
+      console.log(`✅ [${requestId}] Run deleted successfully: ${request.params.id}`);
+      return { 
+        message: 'Run deleted successfully',
+        runId: request.params.id,
+        timestamp: new Date().toISOString(),
+        requestId
+      };
+    } catch (error: any) {
+      logError('DELETE /runs/:id/delete', error, requestId);
+      
+      const errorResponse = createErrorResponse(
+        'Failed to delete run',
+        { 
+          originalError: error.message,
+          runId: request.params.id
+        },
         500
       );
       reply.status(500).send(errorResponse);
