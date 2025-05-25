@@ -3,373 +3,381 @@ import {
   Box,
   Paper,
   Typography,
+  CircularProgress,
+  Grid,
   Card,
   CardContent,
-  LinearProgress,
   Chip,
-  IconButton,
-  Tooltip,
+  Stack,
+  Divider,
+  LinearProgress,
 } from '@mui/material';
-import {
-  Timeline,
-  TrendingUp,
-  Speed,
-  CheckCircle,
-  Error,
-  Pause,
-  PlayArrow,
-} from '@mui/icons-material';
 import {
   LineChart,
   Line,
   XAxis,
   YAxis,
   CartesianGrid,
-  Tooltip as RechartsTooltip,
-  ResponsiveContainer,
-  AreaChart,
-  Area,
-  BarChart,
-  Bar,
+  Tooltip,
+  Legend,
+  ResponsiveContainer
 } from 'recharts';
-import type { ProgressMetrics } from '../services/api';
+import { ProgressMetrics } from '../services/api';
 
 interface RealTimeChartsProps {
-  currentMetrics: ProgressMetrics;
-  isRunning: boolean;
-  onPauseResume?: () => void;
+  data: ProgressMetrics;
+  status: 'running' | 'completed' | 'stopped' | 'failed';
+  summary?: {
+    totalRequests: number;
+    successfulRequests: number;
+    failedRequests: number;
+    averageRps: number;
+    p50Latency: number;
+    p95Latency: number;
+    p99Latency: number;
+    errorRate: number;
+    duration: number;
+    targetRequests?: number;
+    targetDuration?: number;
+  };
 }
 
-interface ChartDataPoint {
-  timestamp: string;
+interface ChartData {
   time: number;
   rps: number;
+  successfulRequests: number;
+  failedRequests: number;
   latency: number;
-  successRate: number;
-  totalRequests: number;
-  errors: number;
 }
 
-const RealTimeCharts: React.FC<RealTimeChartsProps> = ({
-  currentMetrics,
-  isRunning,
-  onPauseResume,
-}) => {
-  const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
-  const [isPaused, setIsPaused] = useState(false);
-  const maxDataPoints = 50; // Keep last 50 data points
+const RealTimeCharts: React.FC<RealTimeChartsProps> = ({ data, status, summary }) => {
+  const [chartData, setChartData] = useState<ChartData[]>([]);
+  const maxDataPoints = 100; // Limit data points to prevent performance issues
+  
+  // Format a number with appropriate units (k for thousands, m for millions)
+  const formatNumber = (num: number) => {
+    if (num >= 1000000) {
+      return `${(num / 1000000).toFixed(1)}m`;
+    } else if (num >= 1000) {
+      return `${(num / 1000).toFixed(1)}k`;
+    } else {
+      return num.toString();
+    }
+  };
 
-  // Update chart data when new metrics arrive
+  // Add current data point to chart
   useEffect(() => {
-    if (!isPaused && currentMetrics) {
-      const newDataPoint: ChartDataPoint = {
-        timestamp: new Date().toLocaleTimeString(),
-        time: currentMetrics.elapsedTime,
-        rps: currentMetrics.currentRps,
-        latency: currentMetrics.averageLatency,
-        successRate: currentMetrics.totalRequests > 0 
-          ? (currentMetrics.successfulRequests / currentMetrics.totalRequests) * 100 
-          : 0,
-        totalRequests: currentMetrics.totalRequests,
-        errors: currentMetrics.failedRequests,
+    if (data && (status === 'running' || status === 'completed')) {
+      const newDataPoint = {
+        time: data.elapsedTime,
+        rps: Math.round(data.currentRps * 10) / 10, // Round to 1 decimal place
+        successfulRequests: data.successfulRequests,
+        failedRequests: data.failedRequests,
+        latency: data.averageLatency
       };
-
+      
+      // Add data point and limit size
       setChartData(prev => {
-        const updated = [...prev, newDataPoint];
-        // Keep only the last maxDataPoints
-        return updated.slice(-maxDataPoints);
+        const newData = [...prev, newDataPoint];
+        return newData.length > maxDataPoints ? newData.slice(-maxDataPoints) : newData;
       });
     }
-  }, [currentMetrics, isPaused]);
+  }, [data, status]);
 
-  const handlePauseResume = () => {
-    setIsPaused(!isPaused);
-    onPauseResume?.();
-  };
+  // Show placeholder while loading
+  if (!data) {
+    return (
+      <Box display="flex" justifyContent="center" alignItems="center" height="400px">
+        <CircularProgress />
+      </Box>
+    );
+  }
 
-  const getStatusColor = (value: number, thresholds: { good: number; warning: number }) => {
-    if (value >= thresholds.good) return 'success.main';
-    if (value >= thresholds.warning) return 'warning.main';
-    return 'error.main';
-  };
-
-  const formatNumber = (num: number) => {
-    if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;
-    if (num >= 1000) return `${(num / 1000).toFixed(1)}K`;
-    return num.toFixed(0);
-  };
-
-  const currentSuccessRate = currentMetrics.totalRequests > 0 
-    ? (currentMetrics.successfulRequests / currentMetrics.totalRequests) * 100 
-    : 0;
+  // Calculate completion percentage based on expected progress if available, otherwise use time-based estimate
+  const completionPercentage = data.expectedProgress !== undefined 
+    ? Math.min(100, data.expectedProgress) 
+    : (summary && summary.targetDuration 
+      ? Math.min(100, (data.elapsedTime / summary.targetDuration) * 100) 
+      : Math.min(100, (data.elapsedTime / (data.elapsedTime + 10)) * 100));
 
   return (
-    <Box>
-      {/* Control Panel */}
-      <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-        <Typography variant="h6" display="flex" alignItems="center">
-          <Timeline sx={{ mr: 1 }} />
-          Real-Time Performance Metrics
-        </Typography>
-        <Box display="flex" alignItems="center" gap={1}>
-          <Chip
-            label={isRunning ? 'RUNNING' : 'STOPPED'}
-            color={isRunning ? 'success' : 'default'}
-            icon={isRunning ? <PlayArrow /> : <Pause />}
-            variant="outlined"
+    <Grid container spacing={3}>
+      {/* Progress Bar */}
+      <Grid item xs={12}>
+        <Paper sx={{ p: 2, mb: 3 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+            <Typography variant="h6" fontWeight="medium">Test Progress</Typography>
+            <Typography variant="body1">
+              {status === 'running' ? `${Math.round(completionPercentage)}%` : status === 'completed' ? '100%' : status}
+            </Typography>
+          </Box>
+          <LinearProgress 
+            variant="determinate" 
+            value={status === 'completed' ? 100 : completionPercentage} 
+            color={status === 'failed' ? 'error' : status === 'stopped' ? 'warning' : 'primary'}
+            sx={{ height: 10, borderRadius: 5 }}
           />
-          <Tooltip title={isPaused ? 'Resume updates' : 'Pause updates'}>
-            <IconButton onClick={handlePauseResume} size="small">
-              {isPaused ? <PlayArrow /> : <Pause />}
-            </IconButton>
-          </Tooltip>
-        </Box>
-      </Box>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 1 }}>
+            <Typography variant="body2" color="text.secondary">
+              {data.elapsedTime}s elapsed
+            </Typography>
+            {summary?.targetDuration && (
+              <Typography variant="body2" color="text.secondary">
+                Target: {summary.targetDuration}s
+              </Typography>
+            )}
+          </Box>
+        </Paper>
+      </Grid>
 
-      {/* Key Metrics Cards */}
-      <Box display="flex" gap={2} sx={{ mb: 3, flexWrap: 'wrap' }}>
-        <Box sx={{ flex: '1 1 250px', minWidth: 250 }}>
-          <Card>
-            <CardContent>
-              <Box display="flex" alignItems="center" justifyContent="space-between">
-                <Box>
-                  <Typography color="textSecondary" variant="body2">
-                    Current RPS
+      {/* Key Metrics */}
+      <Grid item xs={12} md={6}>
+        <Paper sx={{ p: 2, height: '100%' }}>
+          <Typography variant="h6" fontWeight="medium" gutterBottom>
+            Key Metrics
+          </Typography>
+          <Stack spacing={2}>
+            <Box>
+              <Typography variant="body2" color="text.secondary">
+                Requests per Second
+              </Typography>
+              <Typography variant="h4">
+                {Math.round(data.currentRps)}
+              </Typography>
+              {summary && (
+                <Chip 
+                  size="small" 
+                  label={`Target: ${Math.round(summary.averageRps)}`} 
+                  color="primary" 
+                  variant="outlined"
+                  sx={{ mt: 0.5 }}
+                />
+              )}
+            </Box>
+            <Divider />
+            <Box>
+              <Typography variant="body2" color="text.secondary">
+                Total Requests
+              </Typography>
+              <Typography variant="h4">
+                {formatNumber(data.totalRequests)}
+              </Typography>
+              {summary?.targetRequests && (
+                <Chip 
+                  size="small" 
+                  label={`Target: ${formatNumber(summary.targetRequests)}`} 
+                  color="primary" 
+                  variant="outlined"
+                  sx={{ mt: 0.5 }}
+                />
+              )}
+            </Box>
+            <Divider />
+            <Box>
+              <Typography variant="body2" color="text.secondary">
+                Average Latency
+              </Typography>
+              <Typography variant="h4">
+                {Math.round(data.averageLatency)}ms
+              </Typography>
+            </Box>
+          </Stack>
+        </Paper>
+      </Grid>
+
+      {/* Success/Failure Metrics */}
+      <Grid item xs={12} md={6}>
+        <Paper sx={{ p: 2, height: '100%' }}>
+          <Typography variant="h6" fontWeight="medium" gutterBottom>
+            Request Status
+          </Typography>
+          <Grid container spacing={2}>
+            <Grid item xs={6}>
+              <Card sx={{ bgcolor: 'success.light', height: '100%' }}>
+                <CardContent>
+                  <Typography variant="body2" color="success.contrastText">
+                    Successful
                   </Typography>
-                  <Typography variant="h4" color="primary">
-                    {currentMetrics.currentRps.toFixed(1)}
+                  <Typography variant="h4" color="success.contrastText">
+                    {formatNumber(data.successfulRequests)}
                   </Typography>
-                </Box>
-                <Speed color="primary" sx={{ fontSize: 40 }} />
-              </Box>
-              <LinearProgress
-                variant="determinate"
-                value={Math.min((currentMetrics.currentRps / 1000) * 100, 100)}
-                sx={{ mt: 1 }}
+                  <Typography variant="body2" color="success.contrastText" sx={{ opacity: 0.8 }}>
+                    {data.totalRequests > 0 
+                      ? `${Math.round((data.successfulRequests / data.totalRequests) * 100)}%` 
+                      : '0%'}
+                  </Typography>
+                </CardContent>
+              </Card>
+            </Grid>
+            <Grid item xs={6}>
+              <Card sx={{ bgcolor: 'error.light', height: '100%' }}>
+                <CardContent>
+                  <Typography variant="body2" color="error.contrastText">
+                    Failed
+                  </Typography>
+                  <Typography variant="h4" color="error.contrastText">
+                    {formatNumber(data.failedRequests)}
+                  </Typography>
+                  <Typography variant="body2" color="error.contrastText" sx={{ opacity: 0.8 }}>
+                    {data.totalRequests > 0 
+                      ? `${Math.round((data.failedRequests / data.totalRequests) * 100)}%` 
+                      : '0%'}
+                  </Typography>
+                </CardContent>
+              </Card>
+            </Grid>
+          </Grid>
+        </Paper>
+      </Grid>
+
+      {/* RPS Chart */}
+      <Grid item xs={12} md={6}>
+        <Paper sx={{ p: 2 }}>
+          <Typography variant="h6" fontWeight="medium" gutterBottom>
+            Requests per Second
+          </Typography>
+          <ResponsiveContainer width="100%" height={250}>
+            <LineChart
+              data={chartData}
+              margin={{
+                top: 5,
+                right: 30,
+                left: 20,
+                bottom: 5,
+              }}
+            >
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis 
+                dataKey="time" 
+                label={{ value: 'Time (s)', position: 'insideBottomRight', offset: -5 }} 
               />
-            </CardContent>
-          </Card>
-        </Box>
-
-        <Box sx={{ flex: '1 1 250px', minWidth: 250 }}>
-          <Card>
-            <CardContent>
-              <Box display="flex" alignItems="center" justifyContent="space-between">
-                <Box>
-                  <Typography color="textSecondary" variant="body2">
-                    Success Rate
-                  </Typography>
-                  <Typography 
-                    variant="h4" 
-                    color={getStatusColor(currentSuccessRate, { good: 95, warning: 90 })}
-                  >
-                    {currentSuccessRate.toFixed(1)}%
-                  </Typography>
-                </Box>
-                {currentSuccessRate >= 95 ? (
-                  <CheckCircle color="success" sx={{ fontSize: 40 }} />
-                ) : (
-                  <Error color="error" sx={{ fontSize: 40 }} />
-                )}
-              </Box>
-              <LinearProgress
-                variant="determinate"
-                value={currentSuccessRate}
-                color={currentSuccessRate >= 95 ? 'success' : currentSuccessRate >= 90 ? 'warning' : 'error'}
-                sx={{ mt: 1 }}
+              <YAxis label={{ value: 'RPS', angle: -90, position: 'insideLeft' }} />
+              <Tooltip formatter={(value) => [`${value}`, '']} />
+              <Legend />
+              <Line
+                type="monotone"
+                dataKey="rps"
+                name="Requests/sec"
+                stroke="#2196f3"
+                activeDot={{ r: 8 }}
+                isAnimationActive={false}
               />
-            </CardContent>
-          </Card>
-        </Box>
+            </LineChart>
+          </ResponsiveContainer>
+        </Paper>
+      </Grid>
 
-        <Box sx={{ flex: '1 1 250px', minWidth: 250 }}>
-          <Card>
-            <CardContent>
-              <Box display="flex" alignItems="center" justifyContent="space-between">
-                <Box>
-                  <Typography color="textSecondary" variant="body2">
-                    Avg Latency
-                  </Typography>
-                  <Typography 
-                    variant="h4" 
-                    color={getStatusColor(1000 - currentMetrics.averageLatency, { good: 800, warning: 500 })}
-                  >
-                    {currentMetrics.averageLatency.toFixed(0)}ms
-                  </Typography>
-                </Box>
-                <TrendingUp 
-                  color={currentMetrics.averageLatency < 200 ? 'success' : 'warning'} 
-                  sx={{ fontSize: 40 }} 
-                />
-              </Box>
-              <LinearProgress
-                variant="determinate"
-                value={Math.min((currentMetrics.averageLatency / 1000) * 100, 100)}
-                color={currentMetrics.averageLatency < 200 ? 'success' : currentMetrics.averageLatency < 500 ? 'warning' : 'error'}
-                sx={{ mt: 1 }}
+      {/* Latency Chart */}
+      <Grid item xs={12} md={6}>
+        <Paper sx={{ p: 2 }}>
+          <Typography variant="h6" fontWeight="medium" gutterBottom>
+            Latency
+          </Typography>
+          <ResponsiveContainer width="100%" height={250}>
+            <LineChart
+              data={chartData}
+              margin={{
+                top: 5,
+                right: 30,
+                left: 20,
+                bottom: 5,
+              }}
+            >
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis 
+                dataKey="time" 
+                label={{ value: 'Time (s)', position: 'insideBottomRight', offset: -5 }} 
               />
-            </CardContent>
-          </Card>
-        </Box>
+              <YAxis label={{ value: 'ms', angle: -90, position: 'insideLeft' }} />
+              <Tooltip formatter={(value) => [`${value} ms`, '']} />
+              <Legend />
+              <Line
+                type="monotone"
+                dataKey="latency"
+                name="Avg Latency"
+                stroke="#ff9800"
+                isAnimationActive={false}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </Paper>
+      </Grid>
 
-        <Box sx={{ flex: '1 1 250px', minWidth: 250 }}>
-          <Card>
-            <CardContent>
-              <Box display="flex" alignItems="center" justifyContent="space-between">
+      {/* Summary Section (only shown when completed) */}
+      {status !== 'running' && summary && (
+        <Grid item xs={12}>
+          <Paper sx={{ p: 2 }}>
+            <Typography variant="h6" fontWeight="medium" gutterBottom>
+              Test Summary
+            </Typography>
+            <Grid container spacing={2}>
+              <Grid item xs={6} md={3}>
                 <Box>
-                  <Typography color="textSecondary" variant="body2">
-                    Total Requests
-                  </Typography>
-                  <Typography variant="h4" color="info.main">
-                    {formatNumber(currentMetrics.totalRequests)}
-                  </Typography>
-                </Box>
-                <Box textAlign="center">
-                  <Typography variant="caption" color="success.main">
-                    ✓ {formatNumber(currentMetrics.successfulRequests)}
-                  </Typography>
-                  <br />
-                  <Typography variant="caption" color="error.main">
-                    ✗ {formatNumber(currentMetrics.failedRequests)}
+                  <Typography variant="body2" color="text.secondary">Total Requests</Typography>
+                  <Typography variant="h6">
+                    {formatNumber(summary.totalRequests)}
+                    {summary.targetRequests && (
+                      <Typography component="span" variant="caption" sx={{ ml: 1, color: 'text.secondary' }}>
+                        of {formatNumber(summary.targetRequests)} target
+                      </Typography>
+                    )}
                   </Typography>
                 </Box>
-              </Box>
-            </CardContent>
-          </Card>
-        </Box>
-      </Box>
-
-      {/* Charts */}
-      <Box display="flex" gap={2} sx={{ flexWrap: 'wrap' }}>
-        {/* RPS Chart */}
-        <Box sx={{ flex: '1 1 400px', minWidth: 400 }}>
-          <Paper sx={{ p: 2 }}>
-            <Typography variant="h6" gutterBottom>
-              Requests Per Second
-            </Typography>
-            <ResponsiveContainer width="100%" height={250}>
-              <AreaChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis 
-                  dataKey="timestamp" 
-                  tick={{ fontSize: 12 }}
-                  interval="preserveStartEnd"
-                />
-                <YAxis tick={{ fontSize: 12 }} />
-                <RechartsTooltip 
-                  labelFormatter={(value) => `Time: ${value}`}
-                  formatter={(value: number) => [value.toFixed(1), 'RPS']}
-                />
-                <Area 
-                  type="monotone" 
-                  dataKey="rps" 
-                  stroke="#1976d2" 
-                  fill="#1976d2" 
-                  fillOpacity={0.3}
-                  strokeWidth={2}
-                />
-              </AreaChart>
-            </ResponsiveContainer>
+              </Grid>
+              <Grid item xs={6} md={3}>
+                <Box>
+                  <Typography variant="body2" color="text.secondary">Avg RPS</Typography>
+                  <Typography variant="h6">
+                    {Math.round(summary.averageRps * 10) / 10}
+                  </Typography>
+                </Box>
+              </Grid>
+              <Grid item xs={6} md={3}>
+                <Box>
+                  <Typography variant="body2" color="text.secondary">Duration</Typography>
+                  <Typography variant="h6">
+                    {summary.duration}s
+                    {summary.targetDuration && (
+                      <Typography component="span" variant="caption" sx={{ ml: 1, color: 'text.secondary' }}>
+                        of {summary.targetDuration}s target
+                      </Typography>
+                    )}
+                  </Typography>
+                </Box>
+              </Grid>
+              <Grid item xs={6} md={3}>
+                <Box>
+                  <Typography variant="body2" color="text.secondary">Error Rate</Typography>
+                  <Typography variant="h6">
+                    {Math.round(summary.errorRate)}%
+                  </Typography>
+                </Box>
+              </Grid>
+              <Grid item xs={12}>
+                <Divider sx={{ my: 2 }} />
+                <Typography variant="body2" color="text.secondary" gutterBottom>
+                  Latency
+                </Typography>
+                <Stack direction="row" spacing={3}>
+                  <Box>
+                    <Typography variant="body2">P50</Typography>
+                    <Typography variant="h6">{summary.p50Latency}ms</Typography>
+                  </Box>
+                  <Box>
+                    <Typography variant="body2">P95</Typography>
+                    <Typography variant="h6">{summary.p95Latency}ms</Typography>
+                  </Box>
+                  <Box>
+                    <Typography variant="body2">P99</Typography>
+                    <Typography variant="h6">{summary.p99Latency}ms</Typography>
+                  </Box>
+                </Stack>
+              </Grid>
+            </Grid>
           </Paper>
-        </Box>
-
-        {/* Latency Chart */}
-        <Box sx={{ flex: '1 1 400px', minWidth: 400 }}>
-          <Paper sx={{ p: 2 }}>
-            <Typography variant="h6" gutterBottom>
-              Average Latency
-            </Typography>
-            <ResponsiveContainer width="100%" height={250}>
-              <LineChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis 
-                  dataKey="timestamp" 
-                  tick={{ fontSize: 12 }}
-                  interval="preserveStartEnd"
-                />
-                <YAxis tick={{ fontSize: 12 }} />
-                <RechartsTooltip 
-                  labelFormatter={(value) => `Time: ${value}`}
-                  formatter={(value: number) => [`${value.toFixed(0)}ms`, 'Latency']}
-                />
-                <Line 
-                  type="monotone" 
-                  dataKey="latency" 
-                  stroke="#ff9800" 
-                  strokeWidth={2}
-                  dot={{ fill: '#ff9800', strokeWidth: 2, r: 3 }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </Paper>
-        </Box>
-
-        {/* Success Rate Chart */}
-        <Box sx={{ flex: '1 1 400px', minWidth: 400 }}>
-          <Paper sx={{ p: 2 }}>
-            <Typography variant="h6" gutterBottom>
-              Success Rate
-            </Typography>
-            <ResponsiveContainer width="100%" height={250}>
-              <AreaChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis 
-                  dataKey="timestamp" 
-                  tick={{ fontSize: 12 }}
-                  interval="preserveStartEnd"
-                />
-                <YAxis 
-                  domain={[0, 100]} 
-                  tick={{ fontSize: 12 }}
-                  tickFormatter={(value) => `${value}%`}
-                />
-                <RechartsTooltip 
-                  labelFormatter={(value) => `Time: ${value}`}
-                  formatter={(value: number) => [`${value.toFixed(1)}%`, 'Success Rate']}
-                />
-                <Area 
-                  type="monotone" 
-                  dataKey="successRate" 
-                  stroke="#4caf50" 
-                  fill="#4caf50" 
-                  fillOpacity={0.3}
-                  strokeWidth={2}
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          </Paper>
-        </Box>
-
-        {/* Error Rate Chart */}
-        <Box sx={{ flex: '1 1 400px', minWidth: 400 }}>
-          <Paper sx={{ p: 2 }}>
-            <Typography variant="h6" gutterBottom>
-              Error Count
-            </Typography>
-            <ResponsiveContainer width="100%" height={250}>
-              <BarChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis 
-                  dataKey="timestamp" 
-                  tick={{ fontSize: 12 }}
-                  interval="preserveStartEnd"
-                />
-                <YAxis tick={{ fontSize: 12 }} />
-                <RechartsTooltip 
-                  labelFormatter={(value) => `Time: ${value}`}
-                  formatter={(value: number) => [value, 'Errors']}
-                />
-                <Bar 
-                  dataKey="errors" 
-                  fill="#f44336" 
-                  radius={[2, 2, 0, 0]}
-                />
-              </BarChart>
-            </ResponsiveContainer>
-          </Paper>
-        </Box>
-      </Box>
-    </Box>
+        </Grid>
+      )}
+    </Grid>
   );
 };
 

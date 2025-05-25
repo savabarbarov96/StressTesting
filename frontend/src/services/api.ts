@@ -152,6 +152,8 @@ export interface LoadProfile {
   users: number;
   steady: number;
   rampDown: number;
+  requestsPerSecond?: number;
+  testType?: 'smoke' | 'load' | 'stress' | 'spike' | 'soak';
 }
 
 export interface RequestConfig {
@@ -183,6 +185,8 @@ export interface RunSummary {
   p99Latency: number;
   errorRate: number;
   duration: number;
+  targetRequests?: number;
+  targetDuration?: number;
 }
 
 export interface ProgressMetrics {
@@ -192,16 +196,34 @@ export interface ProgressMetrics {
   failedRequests: number;
   averageLatency: number;
   elapsedTime: number;
+  expectedProgress?: number;
 }
 
 export interface Run {
   _id: string;
-  specId: string;
+  specId: string | Spec;
   status: 'running' | 'completed' | 'stopped' | 'failed';
   startedAt: string;
-  completedAt?: string;
+  endedAt?: string;
   summary?: RunSummary;
   progress: ProgressMetrics;
+  metrics?: {
+    currentRps?: number;
+    totalRequests?: number;
+    successfulRequests?: number;
+    failedRequests?: number;
+    averageLatency?: number;
+    elapsedTime?: number;
+    expectedProgress?: number;
+    averageRps?: number;
+    p50Latency?: number;
+    p95Latency?: number;
+    p99Latency?: number;
+    errorRate?: number;
+    duration?: number;
+    targetRequests?: number;
+    targetDuration?: number;
+  };
   error?: {
     message: string;
     details?: unknown;

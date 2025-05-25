@@ -258,38 +258,82 @@ export class RunManager extends EventEmitter {
   }
 
   private async handleWorkerMessage(runId: string, message: WorkerMessage) {
-    const activeRun = this.activeRuns.get(runId);
-    if (!activeRun) {
-      console.warn(`⚠️ Received message for unknown run ${runId}`);
-      return;
-    }
-
+    console.log(`📊 [RunManager] Processing worker message: ${message.type} for run ${runId}`);
+    
     switch (message.type) {
       case 'progress':
-        console.log(`📊 [RunManager] Received progress for run ${runId}:`, message.data);
-        await this.updateProgress(runId, message.data);
-        this.emit('progress', { runId, data: message.data });
-        console.log(`📊 [RunManager] Emitted progress event for run ${runId}`);
+        try {
+          await this.updateProgress(runId, {
+            currentRps: message.data.currentRps,
+            totalRequests: message.data.totalRequests,
+            successfulRequests: message.data.successfulRequests,
+            failedRequests: message.data.failedRequests,
+            averageLatency: message.data.averageLatency,
+            elapsedTime: message.data.elapsedTime,
+            expectedProgress: message.data.expectedProgress
+          });
+          
+          this.emit('runProgress', {
+            runId,
+            ...message.data
+          });
+        } catch (error) {
+          console.error(`❌ Error updating progress for run ${runId}:`, error);
+        }
         break;
-
+        
       case 'log':
-        console.log(`📝 [${runId}] ${message.data.message}`);
-        this.emit('log', { runId, data: message.data });
-        console.log(`📝 [RunManager] Emitted log event for run ${runId}`);
+        this.emit('runLog', {
+          runId,
+          message: message.data.message,
+          timestamp: message.data.timestamp
+        });
         break;
-
+        
       case 'complete':
-        console.log(`✅ Run ${runId} completed successfully`);
-        await this.completeRun(runId, message.data);
+        try {
+          await this.completeRun(runId, {
+            totalRequests: message.data.totalRequests,
+            successfulRequests: message.data.successfulRequests,
+            failedRequests: message.data.failedRequests,
+            averageRps: message.data.averageRps,
+            p50Latency: message.data.p50Latency,
+            p95Latency: message.data.p95Latency,
+            p99Latency: message.data.p99Latency,
+            errorRate: message.data.errorRate,
+            duration: message.data.duration,
+            targetRequests: message.data.targetRequests,
+            targetDuration: message.data.targetDuration
+          });
+          
+          this.emit('runCompleted', {
+            runId,
+            summary: message.data
+          });
+        } catch (error) {
+          console.error(`❌ Error completing run ${runId}:`, error);
+        }
         break;
-
+        
       case 'error':
-        console.error(`❌ Run ${runId} failed:`, message.data);
-        await this.failRun(runId, message.data);
+        try {
+          await this.failRun(runId, {
+            message: message.data.message,
+            error: message.data.error,
+            stack: message.data?.stack
+          });
+          
+          this.emit('runFailed', {
+            runId,
+            error: message.data
+          });
+        } catch (error) {
+          console.error(`❌ Error marking run ${runId} as failed:`, error);
+        }
         break;
-
+        
       default:
-        console.warn(`⚠️ Unknown message type from worker: ${message.type}`);
+        console.warn(`⚠️ Unknown message type ${message.type} for run ${runId}`);
     }
   }
 
@@ -336,35 +380,47 @@ export class RunManager extends EventEmitter {
   }
 
   private async updateProgress(runId: string, progressData: IProgressMetrics) {
-    try {
-      await Run.findByIdAndUpdate(runId, {
-        progress: progressData
-      });
-    } catch (error) {
-      console.error(`❌ Error updating progress for run ${runId}:`, error);
-    }
+    await Run.findByIdAndUpdate(runId, {
+      progress: progressData,
+      'metrics.currentRps': progressData.currentRps,
+      'metrics.totalRequests': progressData.totalRequests,
+      'metrics.successfulRequests': progressData.successfulRequests,
+      'metrics.failedRequests': progressData.failedRequests,
+      'metrics.averageLatency': progressData.averageLatency,
+      'metrics.expectedProgress': progressData.expectedProgress
+    });
   }
 
   private async completeRun(runId: string, summaryData: IRunSummary) {
-    try {
-      const activeRun = this.activeRuns.get(runId);
-      if (activeRun?.timeout) {
-        clearTimeout(activeRun.timeout);
-      }
-
-      await Run.findByIdAndUpdate(runId, {
-        status: 'completed',
-        completedAt: new Date(),
-        summary: summaryData
-      });
-
-      // Remove from active runs
-      this.activeRuns.delete(runId);
-
-      this.emit('runCompleted', { runId, summary: summaryData });
-    } catch (error) {
-      console.error(`❌ Error completing run ${runId}:`, error);
+    const activeRun = this.activeRuns.get(runId);
+    if (activeRun?.timeout) {
+      clearTimeout(activeRun.timeout);
     }
+    
+    const endTime = new Date();
+    
+    await Run.findByIdAndUpdate(runId, {
+      status: 'completed',
+      endedAt: endTime,
+      summary: {
+        ...summaryData,
+        completedAt: endTime
+      },
+      'metrics.totalRequests': summaryData.totalRequests,
+      'metrics.successfulRequests': summaryData.successfulRequests,
+      'metrics.failedRequests': summaryData.failedRequests,
+      'metrics.averageRps': summaryData.averageRps,
+      'metrics.p50Latency': summaryData.p50Latency,
+      'metrics.p95Latency': summaryData.p95Latency,
+      'metrics.p99Latency': summaryData.p99Latency,
+      'metrics.errorRate': summaryData.errorRate,
+      'metrics.duration': summaryData.duration,
+      'metrics.targetRequests': summaryData.targetRequests,
+      'metrics.targetDuration': summaryData.targetDuration
+    });
+    
+    this.activeRuns.delete(runId);
+    console.log(`✅ Run ${runId} completed successfully`);
   }
 
   private async failRun(runId: string, errorData: { message: string; error?: any; stack?: string }) {

@@ -166,7 +166,7 @@ export async function runsRoutes(fastify: FastifyInstance, runManager: RunManage
       console.log(`📋 [${requestId}] Fetching all runs`);
       
       const runs = await Run.find()
-        .populate('specId', 'name')
+        .populate('specId')
         .sort({ createdAt: -1 })
         .limit(100);
       
@@ -208,7 +208,7 @@ export async function runsRoutes(fastify: FastifyInstance, runManager: RunManage
         return reply.status(400).send(errorResponse);
       }
 
-      const run = await Run.findById(request.params.id).populate('specId', 'name');
+      const run = await Run.findById(request.params.id).populate('specId');
       if (!run) {
         const errorResponse = createErrorResponse(
           'Run not found',
@@ -352,7 +352,7 @@ export async function runsRoutes(fastify: FastifyInstance, runManager: RunManage
         return reply.status(400).send(errorResponse);
       }
 
-      const run = await Run.findById(request.params.id).populate('specId', 'name');
+      const run = await Run.findById(request.params.id).populate('specId');
       if (!run) {
         const errorResponse = createErrorResponse(
           'Run not found',

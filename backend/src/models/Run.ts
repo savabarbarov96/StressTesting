@@ -10,6 +10,8 @@ export interface IRunSummary {
   p99Latency: number;
   errorRate: number;
   duration: number; // seconds
+  targetRequests?: number; // Target number of requests based on load profile
+  targetDuration?: number; // Target duration based on load profile
 }
 
 export interface IProgressMetrics {
@@ -19,15 +21,34 @@ export interface IProgressMetrics {
   failedRequests: number;
   averageLatency: number;
   elapsedTime: number; // seconds
+  expectedProgress?: number; // Expected progress percentage based on load profile
 }
 
 export interface IRun extends Document {
   specId: string;
   status: 'running' | 'completed' | 'stopped' | 'failed';
   startedAt: Date;
-  completedAt?: Date;
+  endedAt?: Date;
   summary?: IRunSummary;
   progress: IProgressMetrics;
+  metrics?: {
+    // Store detailed metrics for reporting
+    currentRps?: number;
+    totalRequests?: number;
+    successfulRequests?: number;
+    failedRequests?: number;
+    averageLatency?: number;
+    elapsedTime?: number;
+    expectedProgress?: number;
+    averageRps?: number;
+    p50Latency?: number;
+    p95Latency?: number;
+    p99Latency?: number;
+    errorRate?: number;
+    duration?: number;
+    targetRequests?: number;
+    targetDuration?: number;
+  };
   createdAt: Date;
   updatedAt: Date;
 }
@@ -41,7 +62,9 @@ const RunSummarySchema = new Schema<IRunSummary>({
   p95Latency: { type: Number, required: true },
   p99Latency: { type: Number, required: true },
   errorRate: { type: Number, required: true },
-  duration: { type: Number, required: true }
+  duration: { type: Number, required: true },
+  targetRequests: { type: Number },
+  targetDuration: { type: Number }
 });
 
 const ProgressMetricsSchema = new Schema<IProgressMetrics>({
@@ -50,7 +73,8 @@ const ProgressMetricsSchema = new Schema<IProgressMetrics>({
   successfulRequests: { type: Number, default: 0 },
   failedRequests: { type: Number, default: 0 },
   averageLatency: { type: Number, default: 0 },
-  elapsedTime: { type: Number, default: 0 }
+  elapsedTime: { type: Number, default: 0 },
+  expectedProgress: { type: Number, default: 0 }
 });
 
 const RunSchema = new Schema<IRun>({
@@ -62,9 +86,13 @@ const RunSchema = new Schema<IRun>({
     default: 'running'
   },
   startedAt: { type: Date, required: true, default: Date.now },
-  completedAt: { type: Date },
+  endedAt: { type: Date },
   summary: { type: RunSummarySchema },
-  progress: { type: ProgressMetricsSchema, required: true, default: {} }
+  progress: { type: ProgressMetricsSchema, required: true, default: {} },
+  metrics: {
+    type: Schema.Types.Mixed,
+    default: {}
+  }
 }, {
   timestamps: true
 });

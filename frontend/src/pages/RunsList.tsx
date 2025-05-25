@@ -19,6 +19,14 @@ import {
   CardContent,
   LinearProgress,
   Tooltip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
+
 } from '@mui/material';
 import {
   Refresh,
@@ -27,10 +35,16 @@ import {
   Download,
   Delete,
   PlayArrow,
+  Error as ErrorIcon,
+  ExpandMore,
+
+  PictureAsPdf,
+  Html,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { runsApi, getErrorMessage, getErrorDetails, type Run, type ProgressMetrics, type RunSummary } from '../services/api';
 import socketService from '../services/socket';
+import { downloadHTMLReport, downloadPDFReport } from '../components/ReportExporter';
 
 const RunsList: React.FC = () => {
   const navigate = useNavigate();
@@ -39,6 +53,9 @@ const RunsList: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [stoppingRuns, setStoppingRuns] = useState<Set<string>>(new Set());
+  const [selectedErrorRun, setSelectedErrorRun] = useState<Run | null>(null);
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [selectedRunForExport, setSelectedRunForExport] = useState<Run | null>(null);
 
   const loadRuns = async () => {
     try {
@@ -136,6 +153,26 @@ const RunsList: React.FC = () => {
       setError(errorMessage);
       console.error('❌ Error downloading CSV:', { errorMessage, errorDetails, originalError: err });
     }
+  };
+
+  const handleExportReport = (run: Run, format: 'html' | 'pdf') => {
+    setSelectedRunForExport(run);
+    setExportDialogOpen(true);
+    // TODO: Implement actual export functionality
+    console.log(`Exporting run ${run._id} as ${format}`);
+  };
+
+  const handleShowErrorDetails = (run: Run) => {
+    setSelectedErrorRun(run);
+  };
+
+  const handleCloseErrorDialog = () => {
+    setSelectedErrorRun(null);
+  };
+
+  const handleCloseExportDialog = () => {
+    setExportDialogOpen(false);
+    setSelectedRunForExport(null);
   };
 
   const formatDate = (dateString: string) => {
@@ -369,6 +406,7 @@ const RunsList: React.FC = () => {
                 <TableCell>RPS</TableCell>
                 <TableCell>Success Rate</TableCell>
                 <TableCell>Started</TableCell>
+                <TableCell>Error Details</TableCell>
                 <TableCell align="right">Actions</TableCell>
               </TableRow>
             </TableHead>
@@ -438,6 +476,19 @@ const RunsList: React.FC = () => {
                       {formatDate(run.createdAt)}
                     </Typography>
                   </TableCell>
+                                      <TableCell>
+                      {run.error && (
+                        <Tooltip title="Click to view error details">
+                          <IconButton
+                            size="small"
+                            color="error"
+                            onClick={() => handleShowErrorDetails(run)}
+                          >
+                            <ErrorIcon />
+                          </IconButton>
+                        </Tooltip>
+                      )}
+                    </TableCell>
                   <TableCell align="right">
                     <Box display="flex" gap={1} justifyContent="flex-end">
                       <Tooltip title="View Details">
@@ -468,15 +519,35 @@ const RunsList: React.FC = () => {
                       )}
                       
                       {run.status === 'completed' && run.summary && (
-                        <Tooltip title="Download CSV">
-                          <IconButton
-                            size="small"
-                            onClick={() => handleDownloadCsv(run._id)}
-                            color="primary"
-                          >
-                            <Download />
-                          </IconButton>
-                        </Tooltip>
+                        <>
+                          <Tooltip title="Download CSV">
+                            <IconButton
+                              size="small"
+                              onClick={() => handleDownloadCsv(run._id)}
+                              color="primary"
+                            >
+                              <Download />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="Export HTML Report">
+                            <IconButton
+                              size="small"
+                              onClick={() => handleExportReport(run, 'html')}
+                              color="primary"
+                            >
+                              <Html />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="Export PDF Report">
+                            <IconButton
+                              size="small"
+                              onClick={() => handleExportReport(run, 'pdf')}
+                              color="primary"
+                            >
+                              <PictureAsPdf />
+                            </IconButton>
+                          </Tooltip>
+                        </>
                       )}
                       
                       {run.status !== 'running' && (
@@ -511,6 +582,116 @@ const RunsList: React.FC = () => {
           {successMessage}
         </Alert>
       </Snackbar>
+
+      {/* Error Details Dialog */}
+      <Dialog
+        open={!!selectedErrorRun}
+        onClose={handleCloseErrorDialog}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>
+          <Box display="flex" alignItems="center" gap={1}>
+            <ErrorIcon color="error" />
+            Error Details - Run {selectedErrorRun?._id.slice(-8)}
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          {selectedErrorRun?.error && (
+            <Box>
+              <Typography variant="h6" gutterBottom>
+                Error Message
+              </Typography>
+              <Alert severity="error" sx={{ mb: 2 }}>
+                {selectedErrorRun.error.message}
+              </Alert>
+              
+              {selectedErrorRun.error.details && (
+                <Accordion>
+                  <AccordionSummary expandIcon={<ExpandMore />}>
+                    <Typography variant="h6">Technical Details</Typography>
+                  </AccordionSummary>
+                  <AccordionDetails>
+                    <Box sx={{ fontFamily: 'monospace', fontSize: '0.875rem', whiteSpace: 'pre-wrap' }}>
+                      {typeof selectedErrorRun.error.details === 'string' 
+                        ? selectedErrorRun.error.details 
+                        : JSON.stringify(selectedErrorRun.error.details, null, 2)}
+                    </Box>
+                  </AccordionDetails>
+                </Accordion>
+              )}
+              
+              {selectedErrorRun.error.stack && (
+                <Accordion sx={{ mt: 1 }}>
+                  <AccordionSummary expandIcon={<ExpandMore />}>
+                    <Typography variant="h6">Stack Trace</Typography>
+                  </AccordionSummary>
+                  <AccordionDetails>
+                    <Box sx={{ fontFamily: 'monospace', fontSize: '0.875rem', whiteSpace: 'pre-wrap' }}>
+                      {selectedErrorRun.error.stack}
+                    </Box>
+                  </AccordionDetails>
+                </Accordion>
+              )}
+              
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+                Error occurred at: {selectedErrorRun.error.timestamp ? new Date(selectedErrorRun.error.timestamp).toLocaleString() : 'Unknown'}
+              </Typography>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseErrorDialog}>Close</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Export Dialog */}
+      <Dialog
+        open={exportDialogOpen}
+        onClose={handleCloseExportDialog}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Export Test Report</DialogTitle>
+        <DialogContent>
+          <Typography variant="body1" gutterBottom>
+            Export options for run: {selectedRunForExport?._id.slice(-8)}
+          </Typography>
+          <Box display="flex" gap={2} sx={{ mt: 2 }}>
+            <Button
+              variant="outlined"
+              startIcon={<Html />}
+              onClick={() => {
+                if (selectedRunForExport) {
+                  downloadHTMLReport(selectedRunForExport);
+                  setSuccessMessage('HTML report downloaded successfully!');
+                }
+                handleCloseExportDialog();
+              }}
+              fullWidth
+            >
+              Export as HTML
+            </Button>
+            <Button
+              variant="outlined"
+              startIcon={<PictureAsPdf />}
+              onClick={() => {
+                if (selectedRunForExport) {
+                  downloadPDFReport(selectedRunForExport);
+                  setSuccessMessage('PDF report opened for printing!');
+                }
+                handleCloseExportDialog();
+              }}
+              fullWidth
+            >
+              Export as PDF
+            </Button>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseExportDialog}>Cancel</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

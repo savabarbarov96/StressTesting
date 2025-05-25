@@ -5,6 +5,8 @@ export interface ILoadProfile {
   users: number;     // concurrent users
   steady: number;    // seconds
   rampDown: number;  // seconds
+  requestsPerSecond?: number; // requests per second per user
+  testType?: 'smoke' | 'load' | 'stress' | 'spike' | 'soak';
 }
 
 export interface IRequestConfig {
@@ -29,7 +31,9 @@ const LoadProfileSchema = new Schema<ILoadProfile>({
   rampUp: { type: Number, required: true, min: 0 },
   users: { type: Number, required: true, min: 1 },
   steady: { type: Number, required: true, min: 0 },
-  rampDown: { type: Number, required: true, min: 0 }
+  rampDown: { type: Number, required: true, min: 0 },
+  requestsPerSecond: { type: Number, min: 0.1, default: 1 },
+  testType: { type: String, enum: ['smoke', 'load', 'stress', 'spike', 'soak'], default: 'load' }
 });
 
 const RequestConfigSchema = new Schema<IRequestConfig>({

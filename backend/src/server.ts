@@ -7,6 +7,7 @@ import { WebSocketServer } from './websocket-server';
 import { specsRoutes } from './routes/specs';
 import { runsRoutes } from './routes/runs';
 import { attachmentsRoutes } from './routes/attachments';
+import { testRoutes } from './routes/test';
 
 const fastify = Fastify({
   logger: true
@@ -80,6 +81,7 @@ async function registerRoutes() {
     await runsRoutes(fastify, runManager);
   }, { prefix: '/api/runs' });
   await fastify.register(attachmentsRoutes, { prefix: '/api/attachments' });
+  await fastify.register(testRoutes, { prefix: '/api' });
 
   // Health check endpoint
   fastify.get('/api/health', async () => {

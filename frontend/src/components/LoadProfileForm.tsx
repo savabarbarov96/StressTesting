@@ -14,6 +14,7 @@ import {
   InputAdornment,
 } from '@mui/material';
 import { Speed, People, Timer, TrendingUp } from '@mui/icons-material';
+import LoadProfileExplanation from './LoadProfileExplanation';
 
 interface LoadProfile {
   rampUp: number;
@@ -263,6 +264,9 @@ const LoadProfileForm: React.FC<LoadProfileFormProps> = ({ loadProfile, onChange
           />
         </Stack>
       </Box>
+
+      {/* RPS Explanation */}
+      <LoadProfileExplanation loadProfile={loadProfile} />
     </Paper>
   );
 };

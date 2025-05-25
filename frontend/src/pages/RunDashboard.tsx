@@ -464,12 +464,15 @@ const RunDashboard: React.FC = () => {
         )}
       </Paper>
 
-      {/* Real-Time Charts */}
-      <Box data-export-charts sx={{ mb: 3 }}>
-        <RealTimeCharts
-          currentMetrics={run.progress}
-          isRunning={run.status === 'running'}
-        />
+      {/* Real-time Charts */}
+      <Box sx={{ mb: 3 }}>
+        {run && (
+          <RealTimeCharts 
+            data={run.progress} 
+            status={run.status}
+            summary={run.status !== 'running' ? run.summary : undefined}
+          />
+        )}
       </Box>
 
       {/* Enhanced Console */}

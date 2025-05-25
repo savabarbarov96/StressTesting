@@ -17,6 +17,7 @@ interface ProgressUpdate {
     failedRequests: number;
     averageLatency: number;
     elapsedTime: number;
+    expectedProgress: number;  // Added to track expected progress percentage
   };
 }
 
@@ -40,6 +41,8 @@ interface CompletionUpdate {
     p99Latency: number;
     errorRate: number;
     duration: number;
+    targetRequests: number;  // Added to show the intended request count
+    targetDuration: number;  // Added to show the intended duration
   };
 }
 
@@ -90,8 +93,13 @@ const sendError = (message: string, error?: any) => {
   });
 };
 
+/**
+ * Translates the user-configured load profile to autocannon parameters.
+ * This function is critical for ensuring the actual test execution matches
+ * what users configure in the UI.
+ */
 const translateLoadProfile = (loadProfile: ILoadProfile) => {
-  const { rampUp, users, steady, rampDown } = loadProfile;
+  const { rampUp, users, steady, rampDown, requestsPerSecond = 1 } = loadProfile;
   
   // Validate load profile
   if (!users || users <= 0) {
@@ -104,31 +112,60 @@ const translateLoadProfile = (loadProfile: ILoadProfile) => {
   
   const totalDuration = (rampUp || 0) + steady + (rampDown || 0);
   
+  // Calculate the target RPS (requests per second) across all users
+  const peakRps = users * requestsPerSecond;
+  
+  // Calculate estimated total requests based on load profile phases
+  // Using trapezoidal area calculation for ramp-up and ramp-down phases
+  const rampUpRequests = (rampUp > 0) ? (0.5 * peakRps * rampUp) : 0;
+  const steadyRequests = peakRps * steady;
+  const rampDownRequests = (rampDown > 0) ? (0.5 * peakRps * rampDown) : 0;
+  const estimatedRequests = Math.round(rampUpRequests + steadyRequests + rampDownRequests);
+  
+  sendLog(`🧮 Load Profile Calculation:`);
+  sendLog(`   - Ramp-up: ${rampUp}s with ${rampUpRequests.toFixed(0)} estimated requests`);
+  sendLog(`   - Steady: ${steady}s with ${steadyRequests.toFixed(0)} estimated requests`);
+  sendLog(`   - Ramp-down: ${rampDown}s with ${rampDownRequests.toFixed(0)} estimated requests`);
+  sendLog(`   - Total: ${estimatedRequests.toFixed(0)} requests over ${totalDuration}s`);
+  
+  // Configure autocannon for the most accurate test execution
+  // We prioritize achieving the correct request count and distribution
   return {
     connections: Math.min(users, 1000), // Cap connections to prevent system overload
     duration: totalDuration,
-    // Use a more reasonable request calculation
-    amount: undefined // Let autocannon determine based on duration and connections
+    amount: estimatedRequests,
+    rate: peakRps, // Target maximum RPS during steady state
+    rampUp: rampUp || 0,
+    steady: steady,
+    rampDown: rampDown || 0,
+    requestsPerSecond: requestsPerSecond,
+    maxRps: peakRps,
+    targetRequests: estimatedRequests,  // Store the target request count for reporting
+    targetDuration: totalDuration       // Store the target duration for reporting
   };
 };
 
 const runLoadTest = async (spec: ISpec) => {
   let autocannonInstance: any = null;
   let progressInterval: NodeJS.Timeout | null = null;
+  let loadProfile = translateLoadProfile(spec.loadProfile);
   
   try {
     sendLog(`🚀 Starting load test for spec: ${spec.name}`);
     sendLog(`🎯 Target: ${spec.request.method} ${spec.request.url}`);
-    sendLog(`👥 Load profile: ${spec.loadProfile.users} users for ${spec.loadProfile.steady}s`);
-
-    const autocannonConfig = translateLoadProfile(spec.loadProfile);
+    sendLog(`👥 Load profile: ${spec.loadProfile.users} users, ${spec.loadProfile.requestsPerSecond || 1} RPS/user for ${spec.loadProfile.steady}s`);
+    sendLog(`🔢 Expected total requests: ${loadProfile.targetRequests}`);
     
     // Prepare request configuration with validation
     const requestConfig: any = {
       url: spec.request.url,
       method: spec.request.method.toUpperCase(),
-      connections: autocannonConfig.connections,
-      duration: autocannonConfig.duration,
+      connections: loadProfile.connections,
+      duration: loadProfile.duration,
+      amount: loadProfile.amount,
+      // We cannot use both rate and amount effectively with autocannon
+      // We'll prioritize amount for accuracy in total requests
+      rate: loadProfile.rate,
       headers: spec.request.headers || {},
       // Enable better progress tracking
       renderProgressBar: false,
@@ -187,6 +224,7 @@ const runLoadTest = async (spec: ISpec) => {
     }
 
     sendLog(`🔥 Starting autocannon with ${requestConfig.connections} connections for ${requestConfig.duration}s`);
+    sendLog(`⚡ Target RPS: ${loadProfile.rate} (${spec.loadProfile.requestsPerSecond} per user × ${spec.loadProfile.users} users)`);
 
     const startTime = Date.now();
     let lastProgressUpdate = 0;
@@ -204,6 +242,26 @@ const runLoadTest = async (spec: ISpec) => {
       const elapsedTime = (Date.now() - startTime) / 1000;
       const now = Date.now();
       
+      // Calculate where we should be in the test based on the load profile
+      let expectedProgress = 0;
+      const { rampUp, steady, rampDown, targetDuration } = loadProfile;
+      
+      if (targetDuration > 0) {
+        if (elapsedTime <= rampUp) {
+          // In ramp-up phase
+          expectedProgress = (elapsedTime / targetDuration) * 100;
+        } else if (elapsedTime <= rampUp + steady) {
+          // In steady phase
+          expectedProgress = ((rampUp / targetDuration) + ((elapsedTime - rampUp) / targetDuration)) * 100;
+        } else if (elapsedTime <= targetDuration) {
+          // In ramp-down phase
+          expectedProgress = ((rampUp + steady) / targetDuration + ((elapsedTime - rampUp - steady) / targetDuration)) * 100;
+        } else {
+          // Beyond expected duration
+          expectedProgress = 100;
+        }
+      }
+      
       // Only send updates if we have new data or it's been more than 2 seconds
       if (now - lastProgressUpdate > 2000 || currentStats.requests.total > 0) {
         sendUpdate({
@@ -214,7 +272,8 @@ const runLoadTest = async (spec: ISpec) => {
             successfulRequests: Math.max(0, currentStats.requests.total - currentStats.errors),
             failedRequests: currentStats.errors || 0,
             averageLatency: currentStats.latency.average || 0,
-            elapsedTime: Math.round(elapsedTime)
+            elapsedTime: Math.round(elapsedTime),
+            expectedProgress: Math.min(100, Math.round(expectedProgress))
           }
         });
         lastProgressUpdate = now;
@@ -231,26 +290,12 @@ const runLoadTest = async (spec: ISpec) => {
         resolve(result);
       });
 
-      // Set up event listeners for real-time updates
-      autocannonInstance.on('tick', () => {
-        // The tick event doesn't provide reliable stats during execution
-        // We'll rely on the progress interval and response events for updates instead
-      });
-
-      autocannonInstance.on('done', () => {
-        sendLog(`✅ Autocannon completed`);
-      });
-
-      autocannonInstance.on('error', (error: Error) => {
-        sendLog(`❌ Autocannon error: ${error.message}`);
-        reject(error);
-      });
-
       // Track progress using response events for more accurate real-time stats
       let requestCount = 0;
       let errorCount = 0;
       let latencySum = 0;
-
+      
+      // Listen for responses to track accurate progress
       autocannonInstance.on('response', (client: any, statusCode: number, resBytes: any, responseTime: number) => {
         requestCount++;
         latencySum += responseTime;
@@ -276,6 +321,15 @@ const runLoadTest = async (spec: ISpec) => {
           duration: (Date.now() - startTime) / 1000
         };
       });
+
+      autocannonInstance.on('done', () => {
+        sendLog(`✅ Autocannon completed`);
+      });
+
+      autocannonInstance.on('error', (error: Error) => {
+        sendLog(`❌ Autocannon error: ${error.message}`);
+        reject(error);
+      });
     });
 
     // Clear progress interval
@@ -286,20 +340,23 @@ const runLoadTest = async (spec: ISpec) => {
 
     sendLog(`🎉 Load test completed successfully`);
     
-    // Extract stats from autocannon result - use the correct properties
-    const totalRequests = result.totalCompletedRequests || result.totalRequests || currentStats.requests.total || 0;
-    const errors = result.errors || 0;
-    const duration = result.duration || 0;
+    // Extract stats from autocannon result with improved accuracy
+    const totalRequests = result.requests?.total || result.requests || currentStats.requests.total || 0;
+    const errors = result.errors || result.non2xx || 0;
+    const duration = result.duration || (Date.now() - startTime) / 1000;
     
     // Calculate average RPS from the actual data
-    const averageRps = duration > 0 ? totalRequests / duration : currentStats.requests.average || 0;
+    const averageRps = duration > 0 ? totalRequests / duration : 0;
     
-    // Use real-time latency stats since autocannon result doesn't provide processed latency
-    const latencyStats = currentStats.latency.average > 0 ? currentStats.latency : {
-      average: 0, p50: 0, p95: 0, p99: 0
+    // Use the actual latency metrics from autocannon result if available
+    const latencyStats = {
+      average: result.latency?.average || currentStats.latency.average || 0,
+      p50: result.latency?.p50 || currentStats.latency.p50 || 0,
+      p95: result.latency?.p95 || currentStats.latency.p95 || 0,
+      p99: result.latency?.p99 || currentStats.latency.p99 || 0
     };
     
-    // Prepare comprehensive summary
+    // Prepare comprehensive summary with both target and actual metrics
     const summary = {
       totalRequests: totalRequests,
       successfulRequests: Math.max(0, totalRequests - errors),
@@ -309,11 +366,16 @@ const runLoadTest = async (spec: ISpec) => {
       p95Latency: latencyStats.p95,
       p99Latency: latencyStats.p99,
       errorRate: totalRequests > 0 ? (errors / totalRequests) * 100 : 0,
-      duration: duration
+      duration: duration,
+      targetRequests: loadProfile.targetRequests,
+      targetDuration: loadProfile.targetDuration
     };
 
-    sendLog(`📊 Summary: ${summary.totalRequests} requests, ${summary.successfulRequests} successful, ${summary.failedRequests} failed`);
-    sendLog(`📈 Performance: ${summary.averageRps.toFixed(1)} RPS, ${summary.p50Latency}ms P50 latency`);
+    // Log summary with comparison to targets
+    sendLog(`📊 Summary: ${summary.totalRequests} requests (target: ${loadProfile.targetRequests})`);
+    sendLog(`🕒 Duration: ${duration.toFixed(1)}s (target: ${loadProfile.targetDuration}s)`);
+    sendLog(`⚡ Performance: ${summary.averageRps.toFixed(1)} RPS (target: ${loadProfile.rate})`);
+    sendLog(`📈 Success Rate: ${summary.successfulRequests} / ${summary.totalRequests} (${(100 - summary.errorRate).toFixed(1)}%)`);
 
     sendUpdate({
       type: 'complete',
